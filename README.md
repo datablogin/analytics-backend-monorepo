@@ -39,7 +39,7 @@ This monorepo provides a scalable foundation for analytics applications with:
 
 ### Prerequisites
 
-- Python 3.11+
+- Python 3.10+ (tested on 3.10, 3.11, 3.12)
 - [uv](https://github.com/astral-sh/uv) for fast package management
 - [GitHub CLI](https://cli.github.com/) (optional, for repo management)
 
@@ -80,6 +80,10 @@ make format             # Format code with ruff
 make type-check         # Run mypy type checking
 make clean              # Clean build artifacts
 make run-api            # Start analytics API service
+
+# CI/CD commands
+uv run pre-commit install       # Install pre-commit hooks
+uv run pre-commit run --all-files  # Run pre-commit on all files
 ```
 
 ### GitHub Integration (Optional)
@@ -166,10 +170,24 @@ Each service uses Pydantic Settings for configuration management:
 
 This project is licensed under the MIT License - see the LICENSE file for details.
 
+## 🚀 CI/CD
+
+This repository includes automated testing and quality checks:
+
+- **GitHub Actions**: Automated CI/CD pipeline
+- **Multi-Python Testing**: Tests on Python 3.10, 3.11, 3.12
+- **Code Quality**: Ruff linting, formatting, and MyPy type checking
+- **Test Coverage**: Pytest with coverage reporting
+- **Security**: Safety vulnerability scanning
+- **Docker**: Container build verification
+- **Pre-commit Hooks**: Local development quality gates
+
+[![CI](https://github.com/datablogin/analytics-backend-monorepo/workflows/CI/badge.svg)](https://github.com/datablogin/analytics-backend-monorepo/actions)
+
 ## 🎯 Roadmap
 
-- [ ] Add comprehensive test coverage
-- [ ] Implement CI/CD pipelines
+- [x] Add comprehensive CI/CD pipeline
+- [x] Multi-Python version testing (3.10, 3.11, 3.12)
 - [ ] Add monitoring and observability
 - [ ] Create deployment guides
 - [ ] Add example analytics workflows
