@@ -3,10 +3,10 @@ from datetime import timedelta
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordRequestForm
 from pydantic import BaseModel, EmailStr
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from libs.analytics_core.auth import AuthService, TokenResponse, get_current_user
-from libs.analytics_core.database import get_db
+from libs.analytics_core.database import get_db_session
 from libs.analytics_core.models import User
 
 router = APIRouter(prefix="/auth", tags=["authentication"])
@@ -21,7 +21,7 @@ class UserCreate(BaseModel):
 
 class UserResponse(BaseModel):
     model_config = {"from_attributes": True}
-    
+
     id: int
     username: str
     email: str
@@ -37,7 +37,7 @@ class PasswordChange(BaseModel):
 @router.post("/token", response_model=TokenResponse)
 async def login(
     form_data: OAuth2PasswordRequestForm = Depends(),
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_db_session),
 ):
     user = await AuthService.authenticate_user(
         db, form_data.username, form_data.password
@@ -65,7 +65,7 @@ async def login(
 @router.post("/register", response_model=UserResponse)
 async def register(
     user_data: UserCreate,
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_db_session),
 ):
     # Check if user already exists
     from sqlalchemy import select
@@ -87,7 +87,7 @@ async def register(
     new_user = User(
         username=user_data.username,
         email=user_data.email,
-        password_hash=hashed_password,
+        hashed_password=hashed_password,
         full_name=user_data.full_name,
         is_active=True,
     )
@@ -110,11 +110,11 @@ async def get_current_user_info(
 async def change_password(
     password_data: PasswordChange,
     current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_db_session),
 ):
     # Verify current password
     if not AuthService.verify_password(
-        password_data.current_password, current_user.password_hash
+        password_data.current_password, current_user.hashed_password
     ):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -122,7 +122,7 @@ async def change_password(
         )
 
     # Update password
-    current_user.password_hash = AuthService.get_password_hash(
+    current_user.hashed_password = AuthService.get_password_hash(
         password_data.new_password
     )
     await db.commit()

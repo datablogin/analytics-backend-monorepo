@@ -3,118 +3,121 @@ from datetime import timedelta
 import jwt
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from libs.analytics_core.auth import ALGORITHM, SECRET_KEY, AuthService
-from libs.analytics_core.database import Base, get_db
+from libs.analytics_core.database import Base, get_db_session
 from libs.analytics_core.models import Role, User, UserRole
 from services.analytics_api.main import app
 
 # Test database setup
-SQLALCHEMY_DATABASE_URL = "sqlite:///./test_auth.db"
-engine = create_engine(
+SQLALCHEMY_DATABASE_URL = "sqlite+aiosqlite:///./test_auth.db"
+engine = create_async_engine(
     SQLALCHEMY_DATABASE_URL, connect_args={"check_same_thread": False}
 )
-TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+TestingSessionLocal = async_sessionmaker(
+    engine, class_=AsyncSession, expire_on_commit=False
+)
 
 
-def override_get_db():
-    try:
-        db = TestingSessionLocal()
-        yield db
-    finally:
-        db.close()
+async def override_get_db_session():
+    async with TestingSessionLocal() as session:
+        try:
+            yield session
+            await session.commit()
+        except Exception:
+            await session.rollback()
+            raise
+        finally:
+            await session.close()
 
 
-app.dependency_overrides[get_db] = override_get_db
+app.dependency_overrides[get_db_session] = override_get_db_session
 
 client = TestClient(app)
 
 
 @pytest.fixture(scope="function")
-def setup_test_db():
-    Base.metadata.create_all(bind=engine)
+async def setup_test_db():
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
     yield
-    Base.metadata.drop_all(bind=engine)
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.drop_all)
 
 
 @pytest.fixture
-def test_user(setup_test_db):
-    db = TestingSessionLocal()
-    hashed_password = AuthService.get_password_hash("testpassword123")
-    user = User(
-        username="testuser",
-        email="test@example.com",
-        password_hash=hashed_password,
-        full_name="Test User",
-        is_active=True,
-    )
-    db.add(user)
-    db.commit()
-    db.refresh(user)
-    yield user
-    db.close()
+async def test_user(setup_test_db):
+    async with TestingSessionLocal() as db:
+        hashed_password = AuthService.get_password_hash("testpassword123")
+        user = User(
+            username="testuser",
+            email="test@example.com",
+            hashed_password=hashed_password,
+            full_name="Test User",
+            is_active=True,
+        )
+        db.add(user)
+        await db.commit()
+        await db.refresh(user)
+        yield user
 
 
 @pytest.fixture
-def test_role(setup_test_db):
-    db = TestingSessionLocal()
-    role = Role(
-        name="test_role",
-        description="Test role for testing",
-        permissions=["read:data", "write:data"],
-        is_active=True,
-    )
-    db.add(role)
-    db.commit()
-    db.refresh(role)
-    yield role
-    db.close()
+async def test_role(setup_test_db):
+    async with TestingSessionLocal() as db:
+        role = Role(
+            name="test_role",
+            description="Test role for testing",
+            permissions='["read:data", "write:data"]',
+            is_active=True,
+        )
+        db.add(role)
+        await db.commit()
+        await db.refresh(role)
+        yield role
 
 
 @pytest.fixture
-def admin_user(setup_test_db):
-    db = TestingSessionLocal()
+async def admin_user(setup_test_db):
+    async with TestingSessionLocal() as db:
+        # Create admin role
+        admin_role = Role(
+            name="admin",
+            description="Administrator role",
+            permissions="["
+            + '"admin:roles:create",'
+            + '"admin:roles:read",'
+            + '"admin:roles:update",'
+            + '"admin:roles:delete",'
+            + '"admin:users:read",'
+            + '"admin:users:assign_roles",'
+            + '"admin:users:remove_roles"'
+            + "]",
+            is_active=True,
+        )
+        db.add(admin_role)
+        await db.commit()
 
-    # Create admin role
-    admin_role = Role(
-        name="admin",
-        description="Administrator role",
-        permissions=[
-            "admin:roles:create",
-            "admin:roles:read",
-            "admin:roles:update",
-            "admin:roles:delete",
-            "admin:users:read",
-            "admin:users:assign_roles",
-            "admin:users:remove_roles",
-        ],
-        is_active=True,
-    )
-    db.add(admin_role)
-    db.commit()
+        # Create admin user
+        hashed_password = AuthService.get_password_hash("adminpassword123")
+        admin = User(
+            username="admin",
+            email="admin@example.com",
+            hashed_password=hashed_password,
+            full_name="Admin User",
+            is_active=True,
+        )
+        db.add(admin)
+        await db.commit()
+        await db.refresh(admin)
 
-    # Create admin user
-    hashed_password = AuthService.get_password_hash("adminpassword123")
-    admin = User(
-        username="admin",
-        email="admin@example.com",
-        password_hash=hashed_password,
-        full_name="Admin User",
-        is_active=True,
-    )
-    db.add(admin)
-    db.commit()
-    db.refresh(admin)
+        # Assign admin role to user
+        user_role = UserRole(user_id=admin.id, role_id=admin_role.id)
+        db.add(user_role)
+        await db.commit()
 
-    # Assign admin role to user
-    user_role = UserRole(user_id=admin.id, role_id=admin_role.id)
-    db.add(user_role)
-    db.commit()
-
-    yield admin
-    db.close()
+        yield admin
 
 
 class TestPasswordHashing:

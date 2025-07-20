@@ -1,5 +1,6 @@
 import json
 from datetime import datetime, timedelta, timezone
+from typing import Any
 
 import jwt
 from fastapi import Depends, HTTPException, status
@@ -41,9 +42,7 @@ class AuthService:
         return pwd_context.hash(password)
 
     @staticmethod
-    def create_access_token(
-        data: dict, expires_delta: timedelta | None = None
-    ) -> str:
+    def create_access_token(data: dict[str, Any], expires_delta: timedelta | None = None) -> str:
         to_encode = data.copy()
         if expires_delta:
             expire = datetime.now(timezone.utc) + expires_delta
@@ -136,7 +135,7 @@ async def get_current_user(
     return user
 
 
-def require_permissions(*required_permissions: str):
+def require_permissions(*required_permissions: str) -> Any:
     async def permission_checker(
         current_user: User = Depends(get_current_user),
         db: AsyncSession = Depends(get_db_session),
@@ -154,7 +153,7 @@ def require_permissions(*required_permissions: str):
     return permission_checker
 
 
-def require_roles(*required_roles: str):
+def require_roles(*required_roles: str) -> Any:
     async def role_checker(
         current_user: User = Depends(get_current_user),
         db: AsyncSession = Depends(get_db_session),

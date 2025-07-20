@@ -1,7 +1,7 @@
-
 import json
+
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -20,12 +20,22 @@ class RoleCreate(BaseModel):
 
 class RoleResponse(BaseModel):
     model_config = {"from_attributes": True}
-    
+
     id: int
     name: str
     description: str
     permissions: list[str]
     is_active: bool
+
+    @field_validator("permissions", mode="before")
+    @classmethod
+    def parse_permissions(cls, v):
+        if isinstance(v, str):
+            try:
+                return json.loads(v)
+            except json.JSONDecodeError:
+                return []
+        return v if v is not None else []
 
 
 class UserRoleAssignment(BaseModel):
@@ -35,7 +45,7 @@ class UserRoleAssignment(BaseModel):
 
 class UserWithRoles(BaseModel):
     model_config = {"from_attributes": True}
-    
+
     id: int
     username: str
     email: str
@@ -76,7 +86,7 @@ async def create_role(
 
 @router.get("/roles", response_model=list[RoleResponse])
 async def get_roles(
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_db_session),
     current_user: User = Depends(require_permissions("admin:roles:read")),
 ):
     stmt = select(Role).where(Role.is_active)
@@ -90,7 +100,7 @@ async def get_roles(
 async def update_role(
     role_id: int,
     role_data: RoleCreate,
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_db_session),
     current_user: User = Depends(require_permissions("admin:roles:update")),
 ):
     stmt = select(Role).where(Role.id == role_id, Role.is_active)
@@ -116,7 +126,7 @@ async def update_role(
 @router.delete("/roles/{role_id}")
 async def delete_role(
     role_id: int,
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_db_session),
     current_user: User = Depends(require_permissions("admin:roles:delete")),
 ):
     stmt = select(Role).where(Role.id == role_id, Role.is_active)
@@ -140,7 +150,7 @@ async def delete_role(
 async def assign_role_to_user(
     user_id: int,
     role_assignment: UserRoleAssignment,
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_db_session),
     current_user: User = Depends(require_permissions("admin:users:assign_roles")),
 ):
     # Check if user exists
@@ -155,9 +165,7 @@ async def assign_role_to_user(
         )
 
     # Check if role exists
-    stmt = select(Role).where(
-        Role.id == role_assignment.role_id, Role.is_active
-    )
+    stmt = select(Role).where(Role.id == role_assignment.role_id, Role.is_active)
     result = await db.execute(stmt)
     role = result.scalar_one_or_none()
 
@@ -196,7 +204,7 @@ async def assign_role_to_user(
 async def remove_role_from_user(
     user_id: int,
     role_id: int,
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_db_session),
     current_user: User = Depends(require_permissions("admin:users:remove_roles")),
 ):
     stmt = select(UserRole).where(
@@ -220,7 +228,7 @@ async def remove_role_from_user(
 
 @router.get("/users", response_model=list[UserWithRoles])
 async def get_users_with_roles(
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_db_session),
     current_user: User = Depends(require_permissions("admin:users:read")),
 ):
     stmt = select(User).where(User.is_active)
