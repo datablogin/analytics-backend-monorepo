@@ -17,7 +17,7 @@ from libs.analytics_core.models import AuditLog, Role, User
 def temp_db_url():
     """Create a temporary SQLite database for testing."""
     with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as tmp:
-        db_url = f"sqlite:///{tmp.name}"
+        db_url = f"sqlite+aiosqlite:///{tmp.name}"
         yield db_url
         # Cleanup
         if os.path.exists(tmp.name):
@@ -49,7 +49,7 @@ class TestDatabaseManager:
     async def test_database_initialization(self, db_manager):
         """Test database manager initialization."""
         assert db_manager is not None
-        assert db_manager.database_url.startswith("sqlite://")
+        assert db_manager.database_url.startswith("sqlite+aiosqlite://")
 
         # Test health check
         health = await db_manager.health_check()
