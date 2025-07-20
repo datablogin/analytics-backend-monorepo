@@ -7,7 +7,12 @@ from alembic import context
 
 # Import our models for autogenerate support
 from libs.analytics_core.database import Base
-from libs.analytics_core.models import *  # Import all models
+from libs.analytics_core.models import (
+    AuditLog,  # noqa: F401
+    Role,  # noqa: F401
+    User,  # noqa: F401
+    UserRole,  # noqa: F401
+)
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
@@ -76,9 +81,7 @@ def run_migrations_online() -> None:
     )
 
     with connectable.connect() as connection:
-        context.configure(
-            connection=connection, target_metadata=target_metadata
-        )
+        context.configure(connection=connection, target_metadata=target_metadata)
 
         with context.begin_transaction():
             context.run_migrations()

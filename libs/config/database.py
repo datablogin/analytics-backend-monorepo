@@ -1,7 +1,6 @@
 """Database configuration settings."""
 
 import os
-from typing import Optional
 
 from pydantic import Field
 from pydantic_settings import BaseSettings
@@ -9,31 +8,45 @@ from pydantic_settings import BaseSettings
 
 class DatabaseSettings(BaseSettings):
     """Database configuration settings."""
-    
+
     # Database connection
     database_url: str = Field(
         default="postgresql+asyncpg://postgres:password@localhost:5432/analytics",
-        description="Database connection URL"
+        description="Database connection URL",
     )
-    
+
     # Connection pool settings
     pool_size: int = Field(default=5, description="Database connection pool size")
     max_overflow: int = Field(default=10, description="Maximum connection overflow")
-    pool_timeout: int = Field(default=30, description="Connection pool timeout in seconds")
-    pool_recycle: int = Field(default=3600, description="Connection recycle time in seconds")
-    
+    pool_timeout: int = Field(
+        default=30, description="Connection pool timeout in seconds"
+    )
+    pool_recycle: int = Field(
+        default=3600, description="Connection recycle time in seconds"
+    )
+
     # Migration settings
-    migration_timeout: int = Field(default=300, description="Migration timeout in seconds")
-    migration_lock_timeout: int = Field(default=60, description="Migration lock timeout")
-    
+    migration_timeout: int = Field(
+        default=300, description="Migration timeout in seconds"
+    )
+    migration_lock_timeout: int = Field(
+        default=60, description="Migration lock timeout"
+    )
+
     # Performance settings
-    echo_sql: bool = Field(default=False, description="Echo SQL statements for debugging")
+    echo_sql: bool = Field(
+        default=False, description="Echo SQL statements for debugging"
+    )
     query_timeout: int = Field(default=30, description="Query timeout in seconds")
-    
+
     # Health check settings
-    health_check_interval: int = Field(default=30, description="Health check interval in seconds")
-    health_check_timeout: int = Field(default=5, description="Health check timeout in seconds")
-    
+    health_check_interval: int = Field(
+        default=30, description="Health check interval in seconds"
+    )
+    health_check_timeout: int = Field(
+        default=5, description="Health check timeout in seconds"
+    )
+
     class Config:
         env_prefix = "DB_"
         case_sensitive = False
@@ -74,7 +87,7 @@ def create_database_url(
     password: str = "password",
     host: str = "localhost",
     port: int = 5432,
-    database: str = "analytics"
+    database: str = "analytics",
 ) -> str:
     """Create database URL from components."""
     return f"{driver}://{username}:{password}@{host}:{port}/{database}"
@@ -85,6 +98,6 @@ def create_test_database_url() -> str:
     test_db = os.getenv("TEST_DATABASE_URL")
     if test_db:
         return test_db
-    
+
     # Default to in-memory SQLite for tests
     return "sqlite+aiosqlite:///:memory:"
