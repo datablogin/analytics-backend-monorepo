@@ -1,7 +1,7 @@
 """Database configuration and connection management."""
 
-import asyncio
-from typing import AsyncGenerator, Optional
+from collections.abc import AsyncGenerator
+from typing import Optional
 
 from sqlalchemy import MetaData, create_engine
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine

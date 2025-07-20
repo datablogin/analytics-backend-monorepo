@@ -1,9 +1,8 @@
 """Core database models for analytics platform."""
 
 from datetime import datetime
-from typing import Optional
 
-from sqlalchemy import DateTime, Integer, String, Text, func
+from sqlalchemy import Boolean, DateTime, Integer, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from .database import Base
@@ -35,10 +34,10 @@ class User(BaseModel):
     
     email: Mapped[str] = mapped_column(String(255), unique=True, index=True, nullable=False)
     username: Mapped[str] = mapped_column(String(50), unique=True, index=True, nullable=False)
-    full_name: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    full_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     hashed_password: Mapped[str] = mapped_column(String(255), nullable=False)
-    is_active: Mapped[bool] = mapped_column(default=True, nullable=False)
-    is_superuser: Mapped[bool] = mapped_column(default=False, nullable=False)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    is_superuser: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
 
 
 class Role(BaseModel):
@@ -47,8 +46,8 @@ class Role(BaseModel):
     __tablename__ = "roles"
     
     name: Mapped[str] = mapped_column(String(50), unique=True, index=True, nullable=False)
-    description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    permissions: Mapped[Optional[str]] = mapped_column(Text, nullable=True)  # JSON string
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    permissions: Mapped[str | None] = mapped_column(Text, nullable=True)  # JSON string
 
 
 class UserRole(BaseModel):
@@ -65,10 +64,10 @@ class AuditLog(BaseModel):
     
     __tablename__ = "audit_logs"
     
-    user_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True, index=True)
+    user_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
     action: Mapped[str] = mapped_column(String(100), nullable=False, index=True)
-    resource: Mapped[Optional[str]] = mapped_column(String(100), nullable=True, index=True)
-    resource_id: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
-    details: Mapped[Optional[str]] = mapped_column(Text, nullable=True)  # JSON string
-    ip_address: Mapped[Optional[str]] = mapped_column(String(45), nullable=True)
-    user_agent: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    resource: Mapped[str | None] = mapped_column(String(100), nullable=True, index=True)
+    resource_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    details: Mapped[str | None] = mapped_column(Text, nullable=True)  # JSON string
+    ip_address: Mapped[str | None] = mapped_column(String(45), nullable=True)
+    user_agent: Mapped[str | None] = mapped_column(Text, nullable=True)

@@ -7,7 +7,12 @@ from alembic import context
 
 # Import our models for autogenerate support
 from libs.analytics_core.database import Base
-from libs.analytics_core.models import *  # Import all models
+from libs.analytics_core.models import (  # Import specific models
+    AuditLog,
+    Role,
+    User,
+    UserRole,
+)
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
