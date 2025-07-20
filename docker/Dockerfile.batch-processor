@@ -1,0 +1,17 @@
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# Install uv
+RUN pip install uv
+
+# Copy dependency files
+COPY pyproject.toml .
+COPY libs/ libs/
+COPY services/batch_processor/ services/batch_processor/
+
+# Install dependencies
+RUN uv sync --no-dev
+
+# Run Celery worker
+CMD ["uv", "run", "--", "celery", "worker", "-A", "services.batch_processor.celery_app", "--loglevel=info"]

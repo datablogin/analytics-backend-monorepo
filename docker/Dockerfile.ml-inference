@@ -1,0 +1,20 @@
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# Install uv
+RUN pip install uv
+
+# Copy dependency files
+COPY pyproject.toml .
+COPY libs/ libs/
+COPY services/ml_inference/ services/ml_inference/
+
+# Install dependencies including ML packages
+RUN uv sync --no-dev --extra ml
+
+# Expose port
+EXPOSE 8000
+
+# Run the application
+CMD ["uv", "run", "--", "uvicorn", "services.ml_inference.main:app", "--host", "0.0.0.0", "--port", "8000"]

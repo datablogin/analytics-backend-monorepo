@@ -1,0 +1,55 @@
+version: '3.8'
+
+services:
+  analytics-api:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.analytics-api
+    ports:
+      - "8000:8000"
+    environment:
+      - DATABASE_URL=postgresql://postgres:password@postgres:5432/analytics
+      - REDIS_URL=redis://redis:6379
+    depends_on:
+      - postgres
+      - redis
+
+  ml-inference:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.ml-inference
+    ports:
+      - "8001:8000"
+    depends_on:
+      - analytics-api
+
+  batch-processor:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.batch-processor
+    environment:
+      - DATABASE_URL=postgresql://postgres:password@postgres:5432/analytics
+      - REDIS_URL=redis://redis:6379
+      - CELERY_BROKER_URL=redis://redis:6379
+    depends_on:
+      - postgres
+      - redis
+
+  postgres:
+    image: postgres:15
+    environment:
+      - POSTGRES_DB=analytics
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=password
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+
+volumes:
+  postgres_data:

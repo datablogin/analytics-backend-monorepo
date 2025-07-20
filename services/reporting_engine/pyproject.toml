@@ -1,0 +1,18 @@
+[project]
+name = "reporting-engine"
+version = "0.1.0"
+description = "Report generation service"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi>=0.104.0",
+    "celery>=5.3.0",
+    "pandas>=2.1.0",
+    "sqlalchemy>=2.0.0",
+    "structlog>=23.2.0",
+    "analytics-core",
+    "data-processing",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"

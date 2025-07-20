@@ -1,0 +1,16 @@
+[project]
+name = "ml-models"
+version = "0.1.0"
+description = "Machine learning model utilities and shared components"
+requires-python = ">=3.11"
+dependencies = [
+    "scikit-learn>=1.3.0",
+    "pandas>=2.1.0",
+    "numpy>=1.24.0",
+    "joblib>=1.3.0",
+    "pydantic>=2.5.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"

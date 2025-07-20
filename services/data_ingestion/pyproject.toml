@@ -1,0 +1,19 @@
+[project]
+name = "data-ingestion"
+version = "0.1.0"
+description = "Data ingestion and pipeline service"
+requires-python = ">=3.11"
+dependencies = [
+    "celery>=5.3.0",
+    "redis>=5.0.0",
+    "sqlalchemy>=2.0.0",
+    "asyncpg>=0.29.0",
+    "pandas>=2.1.0",
+    "structlog>=23.2.0",
+    "data-processing",
+    "analytics-core",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
