@@ -1,14 +1,15 @@
 """Database configuration and connection management."""
 
 from collections.abc import AsyncGenerator
+from typing import Any
 
-from sqlalchemy import MetaData, create_engine
+from sqlalchemy import MetaData, create_engine, text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.pool import StaticPool
 
 # SQLAlchemy 2.0 style declarative base
-Base = declarative_base()
+Base: Any = declarative_base()
 
 # Naming convention for constraints (required for Alembic)
 NAMING_CONVENTION = {
@@ -94,7 +95,7 @@ class DatabaseManager:
         """Check database connectivity."""
         try:
             async with self.async_engine.begin() as conn:
-                await conn.execute("SELECT 1")
+                await conn.execute(text("SELECT 1"))
             return True
         except Exception:
             return False

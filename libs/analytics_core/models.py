@@ -8,7 +8,7 @@ from sqlalchemy.orm import Mapped, mapped_column
 from .database import Base
 
 
-class BaseModel(Base):
+class BaseModel(Base):  # type: ignore[misc]
     """Base model with common fields."""
 
     __abstract__ = True

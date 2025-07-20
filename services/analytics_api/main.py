@@ -1,4 +1,6 @@
+from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
+from typing import Any
 
 from fastapi import Depends, FastAPI
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -8,7 +10,7 @@ from libs.config.database import get_database_settings
 
 
 @asynccontextmanager
-async def lifespan(app: FastAPI):
+async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     """Application lifespan management."""
     # Startup
     db_settings = get_database_settings()
@@ -59,7 +61,7 @@ async def database_health_check(
 @app.get("/health/detailed")
 async def detailed_health_check(
     db: AsyncSession = Depends(get_db_session),
-) -> dict[str, any]:
+) -> dict[str, Any]:
     """Detailed health check with database and migration status."""
     try:
         db_manager = app.state.db_manager
