@@ -1,7 +1,6 @@
 """Database configuration and connection management."""
 
 from collections.abc import AsyncGenerator
-from typing import Optional
 
 from sqlalchemy import MetaData, create_engine
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
@@ -28,33 +27,35 @@ class DatabaseManager:
 
     def __init__(self, database_url: str, echo: bool = False):
         """Initialize database manager.
-        
+
         Args:
             database_url: Database connection URL
             echo: Whether to echo SQL statements (for debugging)
         """
         self.database_url = database_url
         self.echo = echo
-        
+
         # Create async engine
         self.async_engine = create_async_engine(
             database_url,
             echo=echo,
             poolclass=StaticPool if "sqlite" in database_url else None,
-            connect_args={"check_same_thread": False} if "sqlite" in database_url else {},
+            connect_args={"check_same_thread": False}
+            if "sqlite" in database_url
+            else {},
         )
-        
+
         # Create async session factory
         self.async_session_factory = async_sessionmaker(
             self.async_engine,
             class_=AsyncSession,
             expire_on_commit=False,
         )
-        
+
         # Create sync engine for migrations
         sync_url = database_url.replace("postgresql+asyncpg://", "postgresql://")
         sync_url = sync_url.replace("sqlite+aiosqlite://", "sqlite://")
-        
+
         self.sync_engine = create_engine(
             sync_url,
             echo=echo,
@@ -100,10 +101,10 @@ class DatabaseManager:
 
 
 # Global database manager instance
-_db_manager: Optional[DatabaseManager] = None
+_db_manager: DatabaseManager | None = None
 
 
-def get_database_manager() -> Optional[DatabaseManager]:
+def get_database_manager() -> DatabaseManager | None:
     """Get the global database manager instance."""
     return _db_manager
 
@@ -118,7 +119,9 @@ def initialize_database(database_url: str, echo: bool = False) -> DatabaseManage
 async def get_db_session() -> AsyncGenerator[AsyncSession, None]:
     """FastAPI dependency for database sessions."""
     if _db_manager is None:
-        raise RuntimeError("Database not initialized. Call initialize_database() first.")
-    
+        raise RuntimeError(
+            "Database not initialized. Call initialize_database() first."
+        )
+
     async for session in _db_manager.get_session():
         yield session
