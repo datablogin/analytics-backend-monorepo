@@ -42,7 +42,9 @@ class AuthService:
         return pwd_context.hash(password)
 
     @staticmethod
-    def create_access_token(data: dict[str, Any], expires_delta: timedelta | None = None) -> str:
+    def create_access_token(
+        data: dict[str, Any], expires_delta: timedelta | None = None
+    ) -> str:
         to_encode = data.copy()
         if expires_delta:
             expire = datetime.now(timezone.utc) + expires_delta
