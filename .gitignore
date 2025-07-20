@@ -91,3 +91,10 @@ logs/
 .mypy_cache/
 .dmypy.json
 dmypy.json
+
+# ruff
+.ruff_cache/
+
+# uv
+.uv/
+uv.lock

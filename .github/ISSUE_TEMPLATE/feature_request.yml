@@ -1,0 +1,141 @@
+name: ✨ Feature Request
+description: Suggest a new feature or enhancement
+title: "[FEATURE] "
+labels: ["feature", "needs-triage"]
+assignees: []
+
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for suggesting a new feature! Please provide as much detail as possible to help us understand your request.
+
+  - type: textarea
+    id: feature-description
+    attributes:
+      label: ✨ Feature Description
+      description: A clear and concise description of the feature you'd like to see.
+      placeholder: Describe the feature you want...
+    validations:
+      required: true
+
+  - type: textarea
+    id: problem-statement
+    attributes:
+      label: 🎯 Problem Statement
+      description: What problem does this feature solve? What is the current pain point?
+      placeholder: What problem are you trying to solve?
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposed-solution
+    attributes:
+      label: 💡 Proposed Solution
+      description: How would you like this feature to work? Describe your ideal solution.
+      placeholder: Describe how you envision this working...
+    validations:
+      required: true
+
+  - type: dropdown
+    id: service
+    attributes:
+      label: 🏗️ Target Service/Component
+      description: Which service or component should this feature be added to?
+      options:
+        - analytics-api
+        - data-ingestion
+        - ml-inference
+        - reporting-engine
+        - batch-processor
+        - analytics-core (lib)
+        - data-processing (lib)
+        - ml-models (lib)
+        - api-common (lib)
+        - config (lib)
+        - CI/CD Pipeline
+        - Documentation
+        - New Service/Component
+        - Cross-cutting (multiple services)
+    validations:
+      required: true
+
+  - type: dropdown
+    id: priority
+    attributes:
+      label: 📊 Priority
+      description: How important is this feature to you?
+      options:
+        - Low - Nice to have, not urgent
+        - Medium - Would improve workflow significantly
+        - High - Critical for business needs
+        - Urgent - Blocking current work
+    validations:
+      required: true
+
+  - type: dropdown
+    id: effort
+    attributes:
+      label: 🛠️ Estimated Effort
+      description: What do you think the implementation effort might be?
+      options:
+        - Small - A few hours of work
+        - Medium - 1-3 days of work
+        - Large - 1-2 weeks of work
+        - Extra Large - More than 2 weeks
+        - Unknown - Need technical investigation
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: 🔄 Alternatives Considered
+      description: What alternatives have you considered? Why is this the best approach?
+      placeholder: What other solutions did you consider?
+
+  - type: textarea
+    id: acceptance-criteria
+    attributes:
+      label: ✅ Acceptance Criteria
+      description: What would need to be true for this feature to be considered complete?
+      placeholder: |
+        - [ ] Criterion 1
+        - [ ] Criterion 2
+        - [ ] Criterion 3
+
+  - type: textarea
+    id: technical-considerations
+    attributes:
+      label: 🔧 Technical Considerations
+      description: Any technical details, constraints, or dependencies to consider?
+      placeholder: Technical requirements, API changes, database schema changes, etc.
+
+  - type: textarea
+    id: user-stories
+    attributes:
+      label: 👤 User Stories
+      description: Who would use this feature and how?
+      placeholder: |
+        As a [type of user], I want [goal] so that [benefit].
+
+  - type: textarea
+    id: additional-context
+    attributes:
+      label: 📝 Additional Context
+      description: Add any other context, mockups, or examples about the feature request.
+      placeholder: Screenshots, mockups, examples from other systems, etc.
+
+  - type: checkboxes
+    id: terms
+    attributes:
+      label: ✅ Checklist
+      options:
+        - label: I have searched existing issues to ensure this feature hasn't been requested before
+          required: true
+        - label: I have provided sufficient detail for the development team to understand the request
+          required: true
+        - label: I am available to provide additional clarification if needed
+          required: false
+        - label: I am willing to help test this feature when implemented
+          required: false
