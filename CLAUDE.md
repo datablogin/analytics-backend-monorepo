@@ -20,6 +20,13 @@
 - `uv add <package>`: Add new dependency
 - `uv remove <package>`: Remove dependency
 
+### Issue Management Commands
+- `gh issue list --state open`: List all open issues
+- `gh issue list --label "needs-triage"`: List issues needing triage
+- `gh issue create --template bug_report.yml`: Create bug report
+- `gh issue create --template feature_request.yml`: Create feature request
+- `/groom-backlog`: Run backlog grooming process
+
 ## Project Structure
 
 ```
@@ -79,6 +86,38 @@
 - Use feature branches for development
 - All code must pass linting, type checking, and tests
 - Document API changes in service-specific docs
+
+## Issue Management Workflow
+
+### Creating Issues
+- Use GitHub issue templates for consistency:
+  - 🐛 **Bug Report**: For bugs and unexpected behavior
+  - ✨ **Feature Request**: For new functionality
+  - 🚀 **Enhancement**: For improving existing features
+- Include all required information in templates
+- Apply appropriate labels (service, priority, type)
+- Reference related issues and PRs
+
+### Pull Request Process
+- Use the PR template for all submissions
+- Link to related issues with "Closes #123" syntax
+- Include comprehensive test coverage
+- Ensure all CI/CD checks pass
+- Request review from appropriate team members
+
+### Backlog Grooming
+- Regular backlog review using `/groom-backlog` command
+- Weekly review of `needs-triage` issues
+- Monthly deep-dive on all open issues
+- Close obsolete or completed issues promptly
+- Maintain clear priority labels and descriptions
+
+### Issue Labels
+- **Type**: `bug`, `feature`, `enhancement`, `documentation`
+- **Priority**: `priority/critical`, `priority/high`, `priority/medium`, `priority/low`
+- **Service**: `analytics-api`, `data-ingestion`, `ml-inference`, etc.
+- **Status**: `needs-triage`, `ready-for-development`, `in-progress`, `blocked`
+- **Effort**: `effort/small`, `effort/medium`, `effort/large`, `effort/xl`
 
 ## Environment Setup
 
