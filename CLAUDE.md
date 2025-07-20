@@ -15,6 +15,13 @@
 - `make run-api`: Start the analytics API service
 - `cd services/analytics_api && uvicorn main:app --reload`: Run API with hot reload
 
+### Database Migrations
+- `make migrate-create MESSAGE='description'`: Create new migration
+- `make migrate-upgrade`: Apply pending migrations
+- `make migrate-downgrade`: Rollback last migration
+- `make migrate-history`: Show migration history
+- `make migrate-current`: Show current migration
+
 ### Package Management
 - `uv sync`: Install dependencies from lock file
 - `uv add <package>`: Add new dependency

@@ -1,4 +1,4 @@
-.PHONY: help install dev-install test lint format type-check clean run-api
+.PHONY: help install dev-install test lint format type-check clean run-api migrate-create migrate-upgrade migrate-downgrade migrate-history migrate-current
 
 help:
 	@echo "Available commands:"
@@ -10,6 +10,13 @@ help:
 	@echo "  type-check   - Run mypy type checking"
 	@echo "  clean        - Clean build artifacts"
 	@echo "  run-api      - Run analytics API service"
+	@echo ""
+	@echo "Database Migration Commands:"
+	@echo "  migrate-create   - Create new migration (requires MESSAGE)"
+	@echo "  migrate-upgrade  - Apply pending migrations"
+	@echo "  migrate-downgrade- Rollback last migration"
+	@echo "  migrate-history  - Show migration history"
+	@echo "  migrate-current  - Show current migration"
 
 install:
 	uv sync
@@ -37,3 +44,20 @@ clean:
 
 run-api:
 	cd services/analytics_api && uvicorn main:app --reload --host 0.0.0.0 --port 8000
+
+# Database Migration Commands
+migrate-create:
+	@if [ -z "$(MESSAGE)" ]; then echo "Usage: make migrate-create MESSAGE='migration description'"; exit 1; fi
+	alembic revision --autogenerate -m "$(MESSAGE)"
+
+migrate-upgrade:
+	alembic upgrade head
+
+migrate-downgrade:
+	alembic downgrade -1
+
+migrate-history:
+	alembic history
+
+migrate-current:
+	alembic current
