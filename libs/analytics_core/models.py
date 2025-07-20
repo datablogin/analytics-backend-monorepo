@@ -52,6 +52,7 @@ class Role(BaseModel):
     )
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     permissions: Mapped[str | None] = mapped_column(Text, nullable=True)  # JSON string
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
 
 
 class UserRole(BaseModel):

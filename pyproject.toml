@@ -6,7 +6,7 @@ requires-python = ">=3.10"
 dependencies = [
     "fastapi>=0.104.0",
     "uvicorn[standard]>=0.24.0",
-    "pydantic>=2.5.0",
+    "pydantic[email]>=2.5.0",
     "pydantic-settings>=2.1.0",
     "pandas>=2.1.0",
     "numpy>=1.24.0",
@@ -20,6 +20,8 @@ dependencies = [
     "httpx>=0.25.0",
     "structlog>=23.2.0",
     "python-multipart>=0.0.6",
+    "pyjwt>=2.8.0",
+    "passlib[bcrypt]>=1.7.4",
 ]
 
 [project.optional-dependencies]

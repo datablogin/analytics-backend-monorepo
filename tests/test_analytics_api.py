@@ -22,5 +22,8 @@ def test_health_check(client):
 def test_app_metadata():
     """Test FastAPI app metadata."""
     assert app.title == "Analytics API"
-    assert app.description == "Analytics backend REST API"
+    assert (
+        app.description
+        == "Analytics backend REST API with JWT authentication, RBAC and database migrations"
+    )
     assert app.version == "0.1.0"
