@@ -25,6 +25,7 @@
 - `gh issue list --label "needs-triage"`: List issues needing triage
 - `gh issue create --template bug_report.yml`: Create bug report
 - `gh issue create --template feature_request.yml`: Create feature request
+- `gh issue create --template enhancement.yml`: Create enhancement request
 - `/groom-backlog`: Run backlog grooming process
 
 ## Project Structure
