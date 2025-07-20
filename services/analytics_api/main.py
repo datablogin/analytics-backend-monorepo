@@ -1,10 +1,13 @@
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, Depends
+from fastapi import Depends, FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from libs.analytics_core.auth import get_current_user
 from libs.analytics_core.database import get_db_session, initialize_database
 from libs.config.database import get_database_settings
+from services.analytics_api.routes import admin, auth
 
 
 @asynccontextmanager
@@ -26,10 +29,23 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="Analytics API",
-    description="Analytics backend REST API with JWT authentication and database migrations",
+    description="Analytics backend REST API with JWT authentication, RBAC and database migrations",
     version="0.1.0",
     lifespan=lifespan
 )
+
+# CORS middleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # Configure appropriately for production
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Include routers
+app.include_router(auth.router)
+app.include_router(admin.router)
 
 
 @app.get("/health")
@@ -97,6 +113,11 @@ async def detailed_health_check(
                 "migrations": {"status": "unknown"}
             }
         }
+
+
+@app.get("/protected")
+async def protected_endpoint(current_user=Depends(get_current_user)) -> dict[str, str]:
+    return {"message": f"Hello {current_user.username}, this is a protected endpoint!"}
 
 
 if __name__ == "__main__":
