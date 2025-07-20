@@ -1,6 +1,7 @@
 """Pytest configuration and shared fixtures."""
 
 import os
+
 import pytest
 
 
@@ -8,8 +9,7 @@ import pytest
 def test_database_url():
     """Database URL for testing."""
     return os.getenv(
-        "DATABASE_URL", 
-        "postgresql://postgres:password@localhost:5432/analytics_test"
+        "DATABASE_URL", "postgresql://postgres:password@localhost:5432/analytics_test"
     )
 
 

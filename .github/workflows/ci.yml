@@ -62,7 +62,7 @@ jobs:
     
     - name: Type check with mypy
       run: |
-        uv run mypy libs/ services/ --ignore-missing-imports
+        uv run mypy libs/ services/ --ignore-missing-imports --explicit-package-bases
     
     - name: Test with pytest
       env:

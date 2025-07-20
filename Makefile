@@ -29,7 +29,7 @@ format:
 	ruff format .
 
 type-check:
-	mypy .
+	mypy libs/ services/ --ignore-missing-imports --explicit-package-bases
 
 clean:
 	find . -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null || true

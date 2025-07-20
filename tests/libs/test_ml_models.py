@@ -1,6 +1,5 @@
 """Tests for ML models library."""
 
-import pytest
 from libs.ml_models import __doc__
 
 
@@ -12,5 +11,6 @@ def test_module_import():
 def test_module_structure():
     """Test basic module structure."""
     import libs.ml_models as ml
+
     assert hasattr(ml, "__doc__")
     assert ml.__doc__ is not None
