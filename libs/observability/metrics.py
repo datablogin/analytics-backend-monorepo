@@ -5,7 +5,7 @@ from datetime import datetime
 from typing import Any
 
 import structlog
-from prometheus_client import Counter, Gauge, Histogram, Info
+from prometheus_client import CollectorRegistry, Counter, Gauge, Histogram, Info
 
 from .config import MetricsConfig
 
@@ -15,7 +15,9 @@ logger = structlog.get_logger(__name__)
 class SystemMetrics:
     """System-level metrics tracking."""
 
-    def __init__(self, prefix: str = "system"):
+    def __init__(
+        self, prefix: str = "system", registry: CollectorRegistry | None = None
+    ):
         self.prefix = prefix
 
         # HTTP metrics
@@ -23,29 +25,35 @@ class SystemMetrics:
             f"{prefix}_http_requests_total",
             "Total HTTP requests",
             ["method", "endpoint", "status_code"],
+            registry=registry,
         )
 
         self.http_request_duration = Histogram(
             f"{prefix}_http_request_duration_seconds",
             "HTTP request duration in seconds",
             ["method", "endpoint"],
+            registry=registry,
         )
 
         # Database metrics
         self.db_connections_active = Gauge(
-            f"{prefix}_db_connections_active", "Active database connections"
+            f"{prefix}_db_connections_active",
+            "Active database connections",
+            registry=registry,
         )
 
         self.db_queries_total = Counter(
             f"{prefix}_db_queries_total",
             "Total database queries",
             ["operation", "table"],
+            registry=registry,
         )
 
         self.db_query_duration = Histogram(
             f"{prefix}_db_query_duration_seconds",
             "Database query duration in seconds",
             ["operation", "table"],
+            registry=registry,
         )
 
         # Application metrics
@@ -53,45 +61,66 @@ class SystemMetrics:
             f"{prefix}_errors_total",
             "Total application errors",
             ["error_type", "component"],
+            registry=registry,
         )
 
         self.app_uptime = Gauge(
-            f"{prefix}_uptime_seconds", "Application uptime in seconds"
+            f"{prefix}_uptime_seconds",
+            "Application uptime in seconds",
+            registry=registry,
         )
 
         # Memory and CPU metrics
         self.memory_usage = Gauge(
-            f"{prefix}_memory_usage_bytes", "Memory usage in bytes"
+            f"{prefix}_memory_usage_bytes",
+            "Memory usage in bytes",
+            registry=registry,
         )
 
-        self.cpu_usage = Gauge(f"{prefix}_cpu_usage_percent", "CPU usage percentage")
+        self.cpu_usage = Gauge(
+            f"{prefix}_cpu_usage_percent", "CPU usage percentage", registry=registry
+        )
 
         # Cache metrics
         self.cache_hits_total = Counter(
-            f"{prefix}_cache_hits_total", "Total cache hits", ["cache_name"]
+            f"{prefix}_cache_hits_total",
+            "Total cache hits",
+            ["cache_name"],
+            registry=registry,
         )
 
         self.cache_misses_total = Counter(
-            f"{prefix}_cache_misses_total", "Total cache misses", ["cache_name"]
+            f"{prefix}_cache_misses_total",
+            "Total cache misses",
+            ["cache_name"],
+            registry=registry,
         )
 
 
 class BusinessMetrics:
     """Business-level metrics tracking."""
 
-    def __init__(self, prefix: str = "business"):
+    def __init__(
+        self, prefix: str = "business", registry: CollectorRegistry | None = None
+    ):
         self.prefix = prefix
 
         # User metrics
         self.user_logins_total = Counter(
-            f"{prefix}_user_logins_total", "Total user logins", ["status"]
+            f"{prefix}_user_logins_total",
+            "Total user logins",
+            ["status"],
+            registry=registry,
         )
 
-        self.active_users = Gauge(f"{prefix}_active_users", "Current active users")
+        self.active_users = Gauge(
+            f"{prefix}_active_users", "Current active users", registry=registry
+        )
 
         self.user_sessions_duration = Histogram(
             f"{prefix}_user_session_duration_seconds",
             "User session duration in seconds",
+            registry=registry,
         )
 
         # Data processing metrics
@@ -99,16 +128,21 @@ class BusinessMetrics:
             f"{prefix}_data_records_processed_total",
             "Total data records processed",
             ["dataset", "status"],
+            registry=registry,
         )
 
         self.data_quality_score = Gauge(
-            f"{prefix}_data_quality_score", "Data quality score (0-100)", ["dataset"]
+            f"{prefix}_data_quality_score",
+            "Data quality score (0-100)",
+            ["dataset"],
+            registry=registry,
         )
 
         self.data_validation_failures = Counter(
             f"{prefix}_data_validation_failures_total",
             "Total data validation failures",
             ["dataset", "validation_type"],
+            registry=registry,
         )
 
         # API usage metrics
@@ -116,12 +150,14 @@ class BusinessMetrics:
             f"{prefix}_api_calls_total",
             "Total API calls",
             ["endpoint", "user_type", "status"],
+            registry=registry,
         )
 
         self.api_rate_limit_hits = Counter(
             f"{prefix}_api_rate_limit_hits_total",
             "Total API rate limit hits",
             ["endpoint", "user_id"],
+            registry=registry,
         )
 
         # Revenue/business value metrics
@@ -129,26 +165,30 @@ class BusinessMetrics:
             f"{prefix}_reports_generated_total",
             "Total reports generated",
             ["report_type", "user_type"],
+            registry=registry,
         )
 
         self.export_operations = Counter(
             f"{prefix}_export_operations_total",
             "Total export operations",
             ["format", "size_category"],
+            registry=registry,
         )
 
 
 class MetricsCollector:
     """Central metrics collector and manager."""
 
-    def __init__(self, config: MetricsConfig):
+    def __init__(
+        self, config: MetricsConfig, registry: CollectorRegistry | None = None
+    ):
         self.config = config
-        self.system = SystemMetrics()
-        self.business = BusinessMetrics()
+        self.system = SystemMetrics(registry=registry)
+        self.business = BusinessMetrics(registry=registry)
         self._start_time = time.time()
 
         # Application info
-        self.app_info = Info("app_info", "Application information")
+        self.app_info = Info("app_info", "Application information", registry=registry)
 
         logger.info("Metrics collector initialized")
 
@@ -250,9 +290,11 @@ class MetricsCollector:
         logger.info("Metrics collector shutdown")
 
 
-def create_metrics_collector(config: MetricsConfig) -> MetricsCollector:
+def create_metrics_collector(
+    config: MetricsConfig, registry: CollectorRegistry | None = None
+) -> MetricsCollector:
     """Create and configure a metrics collector."""
-    collector = MetricsCollector(config)
+    collector = MetricsCollector(config, registry=registry)
 
     # Set basic app info
     collector.set_app_info(

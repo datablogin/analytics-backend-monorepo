@@ -11,7 +11,7 @@ class TracingConfig(BaseModel):
 
     enabled: bool = True
     service_name: str = "analytics-backend"
-    jaeger_endpoint: str = "http://localhost:14268/api/traces"
+    jaeger_endpoint: str | None = "http://localhost:14268/api/traces"
     sample_rate: float = 1.0  # Sample all traces in development
     max_tag_value_length: int = 1024
     max_export_batch_size: int = 512

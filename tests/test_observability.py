@@ -120,6 +120,7 @@ class TestMetricsCollector:
         """Create metrics collector instance."""
         # Use separate registry for each test to avoid metric collisions
         from prometheus_client import CollectorRegistry
+
         registry = CollectorRegistry()
         return MetricsCollector(metrics_config, registry=registry)
 
@@ -132,7 +133,9 @@ class TestMetricsCollector:
         # Verify metrics were recorded by checking the metric samples
         metric_samples = list(collector.system.http_requests_total.collect())
         assert len(metric_samples) > 0
-        assert any(sample.value > 0 for metric in metric_samples for sample in metric.samples)
+        assert any(
+            sample.value > 0 for metric in metric_samples for sample in metric.samples
+        )
 
     def test_database_metrics(self, collector):
         """Test database metrics recording."""
@@ -140,7 +143,9 @@ class TestMetricsCollector:
 
         metric_samples = list(collector.system.db_queries_total.collect())
         assert len(metric_samples) > 0
-        assert any(sample.value > 0 for metric in metric_samples for sample in metric.samples)
+        assert any(
+            sample.value > 0 for metric in metric_samples for sample in metric.samples
+        )
 
     def test_business_metrics(self, collector):
         """Test business metrics recording."""
@@ -150,11 +155,17 @@ class TestMetricsCollector:
 
         login_samples = list(collector.business.user_logins_total.collect())
         assert len(login_samples) > 0
-        assert any(sample.value > 0 for metric in login_samples for sample in metric.samples)
-        
+        assert any(
+            sample.value > 0 for metric in login_samples for sample in metric.samples
+        )
+
         processing_samples = list(collector.business.data_records_processed.collect())
         assert len(processing_samples) > 0
-        assert any(sample.value >= 100 for metric in processing_samples for sample in metric.samples)
+        assert any(
+            sample.value >= 100
+            for metric in processing_samples
+            for sample in metric.samples
+        )
 
     def test_metrics_summary(self, collector):
         """Test metrics summary generation."""
@@ -322,6 +333,7 @@ class TestSystemMetrics:
     def test_system_metrics_initialization(self):
         """Test system metrics are properly initialized."""
         from prometheus_client import CollectorRegistry
+
         registry = CollectorRegistry()
         metrics = SystemMetrics(prefix="test", registry=registry)
 
@@ -338,6 +350,7 @@ class TestBusinessMetrics:
     def test_business_metrics_initialization(self):
         """Test business metrics are properly initialized."""
         from prometheus_client import CollectorRegistry
+
         registry = CollectorRegistry()
         metrics = BusinessMetrics(prefix="test", registry=registry)
 
