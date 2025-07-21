@@ -133,7 +133,14 @@ class TestDataProfiler:
         return pd.DataFrame(
             {
                 "id": [1, 2, 3, 4, 5, 1],  # Duplicate row (row 0 and 5 identical)
-                "name": ["Alice", "Bob", None, "Dave", "Eve", "Alice"],  # Missing value + duplicate
+                "name": [
+                    "Alice",
+                    "Bob",
+                    None,
+                    "Dave",
+                    "Eve",
+                    "Alice",
+                ],  # Missing value + duplicate
                 "age": [25, 30, 35, 40, 28, 25],  # Duplicate row
                 "score": [95.5, 87.2, 92.1, 88.9, 94.3, 95.5],  # Duplicate row
                 "active": [True, False, True, True, False, True],  # Duplicate row
