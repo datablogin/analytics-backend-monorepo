@@ -246,6 +246,8 @@ class DataQualityAlerting:
         server = smtplib.SMTP(config["smtp_server"], int(config.get("smtp_port", 587)))
         if config.get("use_tls", True):
             server.starttls()
+        # TODO: Use environment variables or secrets management for credentials
+        # Avoid storing sensitive credentials in plain text
         if config.get("username") and config.get("password"):
             server.login(config["username"], config["password"])
 

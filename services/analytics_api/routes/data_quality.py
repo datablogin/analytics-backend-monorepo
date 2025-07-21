@@ -99,14 +99,15 @@ async def get_quality_metrics(
 ) -> StandardResponse[QualityMetrics]:
     """Get overall data quality metrics and KPIs."""
 
+    # TODO: Replace with actual validation history query from database/storage
     # In a real implementation, this would query actual validation history
     # For now, returning mock data that demonstrates the structure
     metrics = QualityMetrics(
-        total_datasets=25,
-        validated_datasets=23,
-        average_success_rate=95.8,
-        recent_failures=2,
-        quality_score=92.5,
+        total_datasets=25,  # TODO: Query from validation store
+        validated_datasets=23,  # TODO: Query from validation store
+        average_success_rate=95.8,  # TODO: Calculate from actual validation results
+        recent_failures=2,  # TODO: Query recent failure count
+        quality_score=92.5,  # TODO: Implement quality scoring algorithm
     )
 
     return StandardResponse(
@@ -138,6 +139,7 @@ async def get_recent_validations(
         # Get validation history from Great Expectations
         validations = []
 
+        # TODO: Replace with actual validation store query (Great Expectations backend)
         # In a real implementation, this would query the validation store
         # For demonstration, returning structured mock data
         sample_validations = [
@@ -199,12 +201,13 @@ async def validate_dataset(
     """Trigger validation for a specific dataset."""
 
     try:
+        # TODO: Implement actual dataset validation
         # In a real implementation, this would:
         # 1. Load the dataset from the specified location
         # 2. Run validation using the specified suite
         # 3. Return detailed results
 
-        # For demonstration, returning structured response
+        # For demonstration, returning structured mock response
         result = {
             "validation_id": f"val_{int(datetime.utcnow().timestamp())}",
             "dataset_name": validation_request.dataset_name,
@@ -244,6 +247,7 @@ async def get_data_profiles(
     """Get recent data profiling results."""
 
     try:
+        # TODO: Replace with actual profile store query
         # In a real implementation, this would query stored profiles
         profiles = [
             ProfileSummary(
@@ -495,6 +499,7 @@ async def get_quality_alerts(
     """Get recent data quality alerts and violations."""
 
     try:
+        # TODO: Replace with actual alerting system query
         # In a real implementation, this would query an alerting system
         alerts = [
             {

@@ -9,6 +9,7 @@ import pandas as pd
 import structlog
 from celery import Celery
 from pydantic import BaseModel
+from pydantic_settings import BaseSettings
 from redis import Redis
 
 from libs.data_processing import (
@@ -21,9 +22,28 @@ from libs.data_processing import (
 
 logger = structlog.get_logger(__name__)
 
+
+class RedisSettings(BaseSettings):
+    """Redis configuration settings."""
+
+    host: str = "localhost"
+    port: int = 6379
+    db: int = 0
+    password: str | None = None
+
+    class Config:
+        env_prefix = "REDIS_"
+
+
 # Initialize components
 celery_app = Celery("data_ingestion")
-redis_client = Redis(host="localhost", port=6379, db=0)
+redis_settings = RedisSettings()
+redis_client = Redis(
+    host=redis_settings.host,
+    port=redis_settings.port,
+    db=redis_settings.db,
+    password=redis_settings.password,
+)
 dq_framework = DataQualityFramework(DataQualityConfig())
 profiler = DataProfiler()
 lineage_tracker = DataLineageTracker()
@@ -186,7 +206,7 @@ class DataIngestionService:
             # Try to get existing suite - simplified check
             if suite_name not in dq_framework.expectation_suites:
                 raise ValueError("Suite not found")
-        except Exception:
+        except (ValueError, KeyError):
             # Create default expectations if suite doesn't exist
             expectations = create_common_expectations(
                 table_name=dataset_name,
