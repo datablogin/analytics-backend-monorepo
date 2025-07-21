@@ -26,7 +26,7 @@ from libs.api_common.response_models import (
 )
 from libs.api_common.versioning import APIVersion, VersionedAPIRouter
 from libs.config.database import get_database_settings
-from services.analytics_api.routes import admin, auth
+from services.analytics_api.routes import admin, auth, data_quality
 
 
 @asynccontextmanager
@@ -91,6 +91,7 @@ app.add_middleware(
 v1_router = VersionedAPIRouter(APIVersion.V1)
 v1_router.include_router(auth.router)
 v1_router.include_router(admin.router)
+v1_router.include_router(data_quality.router)
 
 # Include versioned routers
 app.include_router(v1_router)
