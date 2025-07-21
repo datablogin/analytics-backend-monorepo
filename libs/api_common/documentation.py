@@ -5,6 +5,7 @@ from typing import Any
 from fastapi import FastAPI
 from fastapi.openapi.docs import get_redoc_html, get_swagger_ui_html
 from fastapi.openapi.utils import get_openapi
+from fastapi.responses import HTMLResponse
 
 
 def create_enhanced_openapi_schema(
@@ -276,7 +277,7 @@ def create_custom_docs_html(
     title: str,
     swagger_css_url: str = "https://cdn.jsdelivr.net/npm/swagger-ui-dist@5/swagger-ui-bundle.css",
     swagger_js_url: str = "https://cdn.jsdelivr.net/npm/swagger-ui-dist@5/swagger-ui-bundle.js",
-) -> str:
+) -> HTMLResponse:
     """Create custom Swagger UI HTML with enhanced styling."""
 
     return get_swagger_ui_html(
@@ -297,7 +298,7 @@ def create_custom_redoc_html(
     openapi_url: str,
     title: str,
     redoc_js_url: str = "https://cdn.jsdelivr.net/npm/redoc@2.1.0/bundles/redoc.standalone.js",
-) -> str:
+) -> HTMLResponse:
     """Create custom ReDoc HTML with enhanced styling."""
 
     return get_redoc_html(
