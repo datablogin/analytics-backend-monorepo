@@ -82,7 +82,8 @@ class TestBaseConfiguration:
         with pytest.raises(ValueError):
             config.update_setting("nonexistent_key", "value")
 
-    def test_hierarchical_config_loading(self):
+    @pytest.mark.asyncio
+    async def test_hierarchical_config_loading(self):
         """Test hierarchical configuration loading from files."""
         with tempfile.TemporaryDirectory() as temp_dir:
             config_dir = Path(temp_dir) / "config"
@@ -101,7 +102,7 @@ class TestBaseConfiguration:
             # Mock the config directory
             with patch("libs.config.base.Path") as mock_path:
                 mock_path.return_value = config_dir
-                config_data = TestConfiguration._load_hierarchical_config(
+                config_data = await TestConfiguration._load_hierarchical_config(
                     Environment.PRODUCTION
                 )
 
@@ -364,14 +365,17 @@ class TestFeatureFlagManager:
 
         # Create a flag with conflicting configuration
         manager.create_flag("test_feature", "Test Feature")
-        manager.update_flag("test_feature", {
-            "percentage_rollout": 50.0,
-            "ab_test": {
-                "name": "test",
-                "variants": {"a": True, "b": False},
-                "traffic_allocation": {"a": 50.0, "b": 50.0},
-            }
-        })
+        manager.update_flag(
+            "test_feature",
+            {
+                "percentage_rollout": 50.0,
+                "ab_test": {
+                    "name": "test",
+                    "variants": {"a": True, "b": False},
+                    "traffic_allocation": {"a": 50.0, "b": 50.0},
+                },
+            },
+        )
 
         issues = manager.validate_flags()
         assert "test_feature" in issues
@@ -546,9 +550,10 @@ class TestAPIConfiguration:
         assert "enable_registration" in runtime_config
         assert "enable_admin_endpoints" in runtime_config
 
-    def test_get_api_config_function(self):
+    @pytest.mark.asyncio
+    async def test_get_api_config_function(self):
         """Test the get_api_config convenience function."""
-        config = get_api_config(Environment.DEVELOPMENT)
+        config = await get_api_config(Environment.DEVELOPMENT)
         assert isinstance(config, APIConfiguration)
         assert config.environment == Environment.DEVELOPMENT
 
@@ -591,12 +596,20 @@ class TestIntegration:
         config.audit_enabled = True
 
         # Update a setting (should generate audit log)
-        with patch("builtins.print") as mock_print:
-            config.update_setting("test_setting", "new_value", source="test", user="test_user")
+        with patch("structlog.get_logger") as mock_get_logger:
+            mock_logger = mock_get_logger.return_value
+            config.update_setting(
+                "test_setting", "new_value", source="test", user="test_user"
+            )
 
-            # Should have printed audit log
-            mock_print.assert_called()
-            call_args = mock_print.call_args[0][0]
-            assert "CONFIG AUDIT:" in call_args
-            assert "test_setting" in call_args
+            # Should have called structured logging
+            mock_logger.info.assert_called()
+            call_args = mock_logger.info.call_args
 
+            # Check the log message and structured data
+            assert call_args[0][0] == "Configuration change audit"
+            kwargs = call_args[1]
+            assert kwargs["key"] == "test_setting"
+            assert kwargs["new_value"] == "new_value"
+            assert kwargs["source"] == "test"
+            assert kwargs["user"] == "test_user"

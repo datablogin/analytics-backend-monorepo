@@ -3,7 +3,7 @@
 import os
 
 from pydantic import Field
-from pydantic_settings import BaseSettings
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class DatabaseSettings(BaseSettings):
@@ -47,9 +47,10 @@ class DatabaseSettings(BaseSettings):
         default=5, description="Health check timeout in seconds"
     )
 
-    class Config:
-        env_prefix = "DB_"
-        case_sensitive = False
+    model_config = SettingsConfigDict(
+        env_prefix="DB_",
+        case_sensitive=False,
+    )
 
     @property
     def sync_database_url(self) -> str:

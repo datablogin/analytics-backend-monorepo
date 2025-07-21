@@ -5,7 +5,7 @@ from typing import Any
 from pydantic import Field
 
 from .base import BaseConfiguration, Environment
-from .feature_flags import feature_flag_manager
+from .feature_flags import ABTestConfig, feature_flag_manager
 
 
 class APIConfiguration(BaseConfiguration):
@@ -17,9 +17,7 @@ class APIConfiguration(BaseConfiguration):
     workers: int = Field(default=1, description="Number of worker processes")
 
     # Security settings
-    cors_origins: list[str] = Field(
-        default=["*"], description="Allowed CORS origins"
-    )
+    cors_origins: list[str] = Field(default=["*"], description="Allowed CORS origins")
     cors_credentials: bool = Field(default=True, description="Allow CORS credentials")
     rate_limit_per_minute: int = Field(
         default=100, description="Rate limit requests per minute"
@@ -27,8 +25,7 @@ class APIConfiguration(BaseConfiguration):
 
     # JWT settings
     jwt_secret_key: str = Field(
-        default="dev-secret-key-change-in-production",
-        description="JWT secret key"
+        default="dev-secret-key-change-in-production", description="JWT secret key"
     )
     jwt_algorithm: str = Field(default="HS256", description="JWT algorithm")
     jwt_expiration_hours: int = Field(
@@ -44,9 +41,7 @@ class APIConfiguration(BaseConfiguration):
     enable_sql_logging: bool = Field(
         default=False, description="Enable SQL query logging"
     )
-    metrics_enabled: bool = Field(
-        default=True, description="Enable metrics collection"
-    )
+    metrics_enabled: bool = Field(default=True, description="Enable metrics collection")
 
     # API Features (using feature flags)
     # These will be overridden by feature flag values at runtime
@@ -81,7 +76,7 @@ class APIConfiguration(BaseConfiguration):
         self,
         feature_key: str,
         user_id: str | None = None,
-        user_attributes: dict[str, str] | None = None,
+        user_attributes: dict[str, Any] | None = None,
     ) -> bool:
         """Check if a feature is enabled via feature flags."""
         return feature_flag_manager.is_enabled(
@@ -96,9 +91,9 @@ class APIConfiguration(BaseConfiguration):
         self,
         feature_key: str,
         user_id: str | None = None,
-        user_attributes: dict[str, str] | None = None,
-        default=None,
-    ):
+        user_attributes: dict[str, Any] | None = None,
+        default: Any = None,
+    ) -> Any:
         """Get feature value from feature flags."""
         return feature_flag_manager.get_value(
             feature_key,
@@ -147,7 +142,6 @@ class APIConfiguration(BaseConfiguration):
         )
 
         # A/B test for new authentication flow
-        from .feature_flags import ABTestConfig
         auth_ab_test = ABTestConfig(
             name="new_auth_flow",
             description="Test new authentication flow",
@@ -205,27 +199,38 @@ class APIConfiguration(BaseConfiguration):
         return issues
 
     def get_runtime_config(
-        self, user_id: str | None = None, user_attributes: dict[str, str] | None = None
+        self, user_id: str | None = None, user_attributes: dict[str, Any] | None = None
     ) -> dict[str, Any]:
         """Get runtime configuration with feature flag overrides."""
         config = self.to_dict(exclude_sensitive=True)
 
         # Override with feature flag values
         feature_overrides = {
-            "enable_registration": self.is_feature_enabled("enable_registration", user_id, user_attributes),
-            "enable_admin_endpoints": self.is_feature_enabled("enable_admin_endpoints", user_id, user_attributes),
-            "enable_swagger_ui": self.is_feature_enabled("enable_swagger_ui", user_id, user_attributes),
-            "enhanced_rate_limiting": self.is_feature_enabled("enhanced_rate_limiting", user_id, user_attributes),
-            "new_auth_flow": self.is_feature_enabled("new_auth_flow", user_id, user_attributes),
+            "enable_registration": self.is_feature_enabled(
+                "enable_registration", user_id, user_attributes
+            ),
+            "enable_admin_endpoints": self.is_feature_enabled(
+                "enable_admin_endpoints", user_id, user_attributes
+            ),
+            "enable_swagger_ui": self.is_feature_enabled(
+                "enable_swagger_ui", user_id, user_attributes
+            ),
+            "enhanced_rate_limiting": self.is_feature_enabled(
+                "enhanced_rate_limiting", user_id, user_attributes
+            ),
+            "new_auth_flow": self.is_feature_enabled(
+                "new_auth_flow", user_id, user_attributes
+            ),
         }
 
         config.update(feature_overrides)
         return config
 
 
-def get_api_config(environment: Environment = Environment.DEVELOPMENT) -> APIConfiguration:
+async def get_api_config(
+    environment: Environment = Environment.DEVELOPMENT,
+) -> APIConfiguration:
     """Get API configuration for the specified environment."""
-    config = APIConfiguration.load_from_environment(environment)
+    config = await APIConfiguration.load_from_environment(environment)
     config.setup_feature_flags()
     return config
-

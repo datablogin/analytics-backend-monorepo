@@ -1,11 +1,16 @@
 """Base configuration management with hierarchical inheritance."""
 
+import asyncio
+import json
 from abc import ABC, abstractmethod
 from datetime import datetime
 from enum import Enum
 from pathlib import Path
 from typing import Any, TypeVar
 
+import aiofiles
+import structlog
+import yaml
 from pydantic import BaseModel, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -80,28 +85,30 @@ class BaseConfiguration(BaseSettings, ABC):
         pass
 
     @classmethod
-    def load_from_environment(
+    async def load_from_environment(
         cls: type[T], environment: Environment = Environment.DEVELOPMENT
     ) -> T:
         """Load configuration for a specific environment with inheritance."""
-        config_data = cls._load_hierarchical_config(environment)
+        config_data = await cls._load_hierarchical_config(environment)
         return cls(**config_data)
 
     @classmethod
-    def _load_hierarchical_config(cls, environment: Environment) -> dict[str, Any]:
+    async def _load_hierarchical_config(
+        cls, environment: Environment
+    ) -> dict[str, Any]:
         """Load configuration with hierarchical inheritance."""
         config_name = cls.get_config_name()
 
         # Start with default configuration
-        config_data = cls._load_config_file("default", config_name)
+        config_data = await cls._load_config_file("default", config_name)
 
         # Override with environment-specific configuration
         if environment != Environment.DEVELOPMENT:
-            env_config = cls._load_config_file(environment.value, config_name)
+            env_config = await cls._load_config_file(environment.value, config_name)
             config_data.update(env_config)
 
         # Override with local configuration (for development)
-        local_config = cls._load_config_file("local", config_name)
+        local_config = await cls._load_config_file("local", config_name)
         config_data.update(local_config)
 
         # Set the environment
@@ -110,12 +117,9 @@ class BaseConfiguration(BaseSettings, ABC):
         return config_data
 
     @classmethod
-    def _load_config_file(cls, env_name: str, config_name: str) -> dict[str, Any]:
-        """Load configuration from a specific file."""
-        import json
-
-        import yaml
-
+    async def _load_config_file(cls, env_name: str, config_name: str) -> dict[str, Any]:
+        """Load configuration from a specific file asynchronously."""
+        logger = structlog.get_logger()
         config_dir = Path("config")
         config_file_patterns = [
             f"{config_name}.{env_name}.json",
@@ -130,13 +134,26 @@ class BaseConfiguration(BaseSettings, ABC):
             config_path = config_dir / pattern
             if config_path.exists():
                 try:
-                    with open(config_path, encoding="utf-8") as f:
+                    async with aiofiles.open(config_path, encoding="utf-8") as f:
+                        content = await f.read()
                         if config_path.suffix.lower() == ".json":
-                            return json.load(f)
+                            return json.loads(content)
                         else:  # YAML
-                            return yaml.safe_load(f) or {}
-                except Exception as e:
-                    print(f"Warning: Failed to load config file {config_path}: {e}")
+                            return yaml.safe_load(content) or {}
+                except (json.JSONDecodeError, yaml.YAMLError) as e:
+                    logger.warning(
+                        "Failed to parse config file",
+                        config_path=str(config_path),
+                        error=str(e),
+                        error_type=type(e).__name__,
+                    )
+                except OSError as e:
+                    logger.warning(
+                        "Failed to read config file",
+                        config_path=str(config_path),
+                        error=str(e),
+                        error_type=type(e).__name__,
+                    )
 
         return {}
 
@@ -168,8 +185,19 @@ class BaseConfiguration(BaseSettings, ABC):
             reason=reason,
         )
 
-        # In a real implementation, this would persist to a database or log file
-        print(f"CONFIG AUDIT: {audit_entry.model_dump_json()}")
+        # Log audit entry using structured logging
+        logger = structlog.get_logger()
+        logger.info(
+            "Configuration change audit",
+            environment=self.environment.value,
+            key=key,
+            old_value=old_value,
+            new_value=new_value,
+            source=source,
+            user=user,
+            reason=reason,
+            timestamp=audit_entry.timestamp.isoformat(),
+        )
 
     def update_setting(
         self,
@@ -238,9 +266,7 @@ class ConfigurationManager:
         self._configurations: dict[str, BaseConfiguration] = {}
         self._file_watchers: dict[str, Any] = {}
 
-    def register_configuration(
-        self, name: str, config: BaseConfiguration
-    ) -> None:
+    def register_configuration(self, name: str, config: BaseConfiguration) -> None:
         """Register a configuration instance."""
         self._configurations[name] = config
 
@@ -260,11 +286,19 @@ class ConfigurationManager:
         config = self._configurations[name]
         try:
             # Reload from the same environment
-            new_config = config.__class__.load_from_environment(config.environment)
+            new_config = asyncio.run(
+                config.__class__.load_from_environment(config.environment)
+            )
             self._configurations[name] = new_config
             return True
-        except Exception as e:
-            print(f"Failed to reload configuration '{name}': {e}")
+        except (ValueError, TypeError, OSError) as e:
+            logger = structlog.get_logger()
+            logger.error(
+                "Failed to reload configuration",
+                config_name=name,
+                error=str(e),
+                error_type=type(e).__name__,
+            )
             return False
 
     def _setup_file_watcher(self, name: str, config: BaseConfiguration) -> None:
@@ -292,4 +326,3 @@ class ConfigurationManager:
 
 # Global configuration manager instance
 config_manager = ConfigurationManager()
-

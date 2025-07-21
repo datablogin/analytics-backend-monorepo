@@ -5,6 +5,7 @@ from datetime import datetime
 from enum import Enum
 from typing import Any
 
+import structlog
 from pydantic import BaseModel, Field, field_validator
 
 
@@ -33,7 +34,9 @@ class TargetingRule(BaseModel):
     description: str | None = None
     conditions: dict[str, Any] = Field(default_factory=dict)
     value: Any
-    priority: int = Field(default=100, description="Higher priority rules are evaluated first")
+    priority: int = Field(
+        default=100, description="Higher priority rules are evaluated first"
+    )
 
 
 class ABTestConfig(BaseModel):
@@ -81,7 +84,9 @@ class FeatureFlag(BaseModel):
     tags: set[str] = Field(default_factory=set)
 
     # Environment restrictions
-    environments: set[str] = Field(default_factory=lambda: {"development", "staging", "production"})
+    environments: set[str] = Field(
+        default_factory=lambda: {"development", "staging", "production"}
+    )
 
     # Scheduling
     start_date: datetime | None = None
@@ -117,7 +122,9 @@ class FeatureFlag(BaseModel):
         user_attributes = user_attributes or {}
 
         # Check targeting rules first (highest priority)
-        for rule in sorted(self.targeting_rules, key=lambda r: r.priority, reverse=True):
+        for rule in sorted(
+            self.targeting_rules, key=lambda r: r.priority, reverse=True
+        ):
             if self._evaluate_targeting_rule(rule, user_id, user_attributes):
                 return rule.value
 
@@ -292,8 +299,14 @@ class FeatureFlagManager:
             updated_flag = FeatureFlag(**flag_data)
             self._flags[key] = updated_flag
             return True
-        except Exception as e:
-            print(f"Failed to update flag '{key}': {e}")
+        except (ValueError, TypeError) as e:
+            logger = structlog.get_logger()
+            logger.error(
+                "Failed to update feature flag",
+                flag_key=key,
+                error=str(e),
+                error_type=type(e).__name__,
+            )
             return False
 
     def delete_flag(self, key: str) -> bool:
@@ -354,8 +367,13 @@ class FeatureFlagManager:
                 flag = FeatureFlag(**flag_data)
                 self.register_flag(flag)
             return True
-        except Exception as e:
-            print(f"Failed to import flags: {e}")
+        except (ValueError, TypeError, KeyError) as e:
+            logger = structlog.get_logger()
+            logger.error(
+                "Failed to import feature flags",
+                error=str(e),
+                error_type=type(e).__name__,
+            )
             return False
 
     def validate_flags(self) -> dict[str, list[str]]:
@@ -367,7 +385,9 @@ class FeatureFlagManager:
 
             # Check for conflicting A/B tests
             if flag.ab_test and flag.percentage_rollout > 0:
-                flag_issues.append("Flag has both A/B test and percentage rollout configured")
+                flag_issues.append(
+                    "Flag has both A/B test and percentage rollout configured"
+                )
 
             # Check for expired flags
             if flag.end_date and datetime.utcnow() > flag.end_date:
@@ -385,4 +405,3 @@ class FeatureFlagManager:
 
 # Global feature flag manager instance
 feature_flag_manager = FeatureFlagManager()
-

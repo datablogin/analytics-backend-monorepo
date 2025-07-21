@@ -7,6 +7,7 @@ from datetime import datetime, timedelta
 from enum import Enum
 from typing import Any
 
+import structlog
 from pydantic import BaseModel, Field, SecretStr
 
 
@@ -128,8 +129,14 @@ class FileBasedSecretProvider(SecretProviderInterface):
                 with open(secret_file, encoding="utf-8") as f:
                     encoded_value = f.read().strip()
                     return base64.b64decode(encoded_value).decode("utf-8")
-            except Exception as e:
-                print(f"Failed to read secret {key}: {e}")
+            except (OSError, ValueError) as e:
+                logger = structlog.get_logger()
+                logger.warning(
+                    "Failed to read secret from file",
+                    secret_key=key,
+                    error=str(e),
+                    error_type=type(e).__name__,
+                )
         return None
 
     async def set_secret(self, key: str, path: str, value: str) -> bool:
@@ -140,8 +147,14 @@ class FileBasedSecretProvider(SecretProviderInterface):
             with open(secret_file, "w", encoding="utf-8") as f:
                 f.write(encoded_value)
             return True
-        except Exception as e:
-            print(f"Failed to store secret {key}: {e}")
+        except (OSError, ValueError) as e:
+            logger = structlog.get_logger()
+            logger.error(
+                "Failed to store secret to file",
+                secret_key=key,
+                error=str(e),
+                error_type=type(e).__name__,
+            )
             return False
 
     async def delete_secret(self, key: str, path: str) -> bool:
@@ -151,8 +164,14 @@ class FileBasedSecretProvider(SecretProviderInterface):
             try:
                 os.remove(secret_file)
                 return True
-            except Exception as e:
-                print(f"Failed to delete secret {key}: {e}")
+            except OSError as e:
+                logger = structlog.get_logger()
+                logger.error(
+                    "Failed to delete secret file",
+                    secret_key=key,
+                    error=str(e),
+                    error_type=type(e).__name__,
+                )
         return False
 
     async def list_secrets(self, path_prefix: str = "") -> list[str]:
@@ -168,6 +187,7 @@ class FileBasedSecretProvider(SecretProviderInterface):
     async def rotate_secret(self, key: str, path: str) -> str | None:
         """Generate a new secret value."""
         import secrets as secrets_module
+
         new_value = secrets_module.token_urlsafe(32)
         if await self.set_secret(key, path, new_value):
             return new_value
@@ -205,10 +225,20 @@ class HashiCorpVaultProvider(SecretProviderInterface):
                 elif response.status_code == 404:
                     return None
                 else:
-                    print(f"Vault error {response.status_code}: {response.text}")
+                    logger = structlog.get_logger()
+                    logger.error(
+                        "Vault API error",
+                        status_code=response.status_code,
+                        error_type="vault_api_error",
+                    )
                     return None
         except Exception as e:
-            print(f"Failed to get secret from Vault: {e}")
+            logger = structlog.get_logger()
+            logger.error(
+                "Failed to get secret from Vault",
+                error=str(e),
+                error_type=type(e).__name__,
+            )
             return None
 
     async def set_secret(self, key: str, path: str, value: str) -> bool:
@@ -224,7 +254,12 @@ class HashiCorpVaultProvider(SecretProviderInterface):
                 response = await client.post(url, headers=headers, json=payload)
                 return response.status_code in [200, 204]
         except Exception as e:
-            print(f"Failed to store secret in Vault: {e}")
+            logger = structlog.get_logger()
+            logger.error(
+                "Failed to store secret in Vault",
+                error=str(e),
+                error_type=type(e).__name__,
+            )
             return False
 
     async def delete_secret(self, key: str, path: str) -> bool:
@@ -239,7 +274,12 @@ class HashiCorpVaultProvider(SecretProviderInterface):
                 response = await client.delete(url, headers=headers)
                 return response.status_code in [200, 204]
         except Exception as e:
-            print(f"Failed to delete secret from Vault: {e}")
+            logger = structlog.get_logger()
+            logger.error(
+                "Failed to delete secret from Vault",
+                error=str(e),
+                error_type=type(e).__name__,
+            )
             return False
 
     async def list_secrets(self, path_prefix: str = "") -> list[str]:
@@ -258,12 +298,18 @@ class HashiCorpVaultProvider(SecretProviderInterface):
                     return data.get("data", {}).get("keys", [])
                 return []
         except Exception as e:
-            print(f"Failed to list secrets from Vault: {e}")
+            logger = structlog.get_logger()
+            logger.error(
+                "Failed to list secrets from Vault",
+                error=str(e),
+                error_type=type(e).__name__,
+            )
             return []
 
     async def rotate_secret(self, key: str, path: str) -> str | None:
         """Rotate secret in Vault."""
         import secrets as secrets_module
+
         new_value = secrets_module.token_urlsafe(32)
         if await self.set_secret(key, path, new_value):
             return new_value
@@ -303,7 +349,12 @@ class SecretsManager:
         # Get from provider
         provider_instance = self._providers.get(provider)
         if not provider_instance:
-            print(f"Provider {provider} not registered")
+            logger = structlog.get_logger()
+            logger.warning(
+                "Secret provider not registered",
+                provider=provider.value,
+                available_providers=[p.value for p in self._providers.keys()],
+            )
             return None
 
         value = await provider_instance.get_secret(key, path)
@@ -336,7 +387,12 @@ class SecretsManager:
         """Store a secret using the specified provider."""
         provider_instance = self._providers.get(provider)
         if not provider_instance:
-            print(f"Provider {provider} not registered")
+            logger = structlog.get_logger()
+            logger.warning(
+                "Secret provider not registered for set operation",
+                provider=provider.value,
+                available_providers=[p.value for p in self._providers.keys()],
+            )
             return False
 
         success = await provider_instance.set_secret(key, path, value)
@@ -439,4 +495,3 @@ class SecretsManager:
 # Global secrets manager instance
 secrets_manager = SecretsManager()
 secrets_manager.setup_default_providers()
-
