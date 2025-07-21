@@ -367,12 +367,8 @@ class DataProfiler:
         removed_columns = set(profile1.columns.keys()) - set(profile2.columns.keys())
 
         if new_columns:
-            warnings.append(
-                f"New columns detected: {', '.join(new_columns)}"
-            )
+            warnings.append(f"New columns detected: {', '.join(new_columns)}")
         if removed_columns:
-            warnings.append(
-                f"Columns removed: {', '.join(removed_columns)}"
-            )
+            warnings.append(f"Columns removed: {', '.join(removed_columns)}")
 
         return comparison

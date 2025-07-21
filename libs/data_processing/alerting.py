@@ -314,8 +314,12 @@ class DataQualityAlerting:
         import httpx
 
         webhook_url = self.config.webhook_config["url"]
-        raw_headers: dict[str, str] | str = self.config.webhook_config.get("headers", {})
-        headers: dict[str, str] = dict(raw_headers) if isinstance(raw_headers, dict) else {}
+        raw_headers: dict[str, str] | str = self.config.webhook_config.get(
+            "headers", {}
+        )
+        headers: dict[str, str] = (
+            dict(raw_headers) if isinstance(raw_headers, dict) else {}
+        )
 
         payload = {
             "alert_id": alert.id,
