@@ -3,6 +3,7 @@
 import contextvars
 import logging
 import sys
+from collections.abc import MutableMapping
 from typing import Any
 
 import structlog
@@ -64,8 +65,8 @@ def configure_structured_logging(config: LoggingConfig) -> None:
 
 
 def add_trace_context(
-    logger: Any, method_name: str, event_dict: dict[str, Any]
-) -> dict[str, Any]:
+    logger: Any, method_name: str, event_dict: MutableMapping[str, Any]
+) -> MutableMapping[str, Any]:
     """Add OpenTelemetry trace context to log entries."""
     span = trace.get_current_span()
 
@@ -88,8 +89,8 @@ def add_trace_context(
 
 
 def add_correlation_context(
-    logger: Any, method_name: str, event_dict: dict[str, Any]
-) -> dict[str, Any]:
+    logger: Any, method_name: str, event_dict: MutableMapping[str, Any]
+) -> MutableMapping[str, Any]:
     """Add correlation context to log entries."""
     # Use module-level correlation_id_var
     if "correlation_id" not in event_dict:
