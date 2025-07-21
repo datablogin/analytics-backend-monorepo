@@ -148,7 +148,10 @@ class DataProfiler:
 
         # Type-specific statistics
         statistics = {}
-        if pd.api.types.is_numeric_dtype(series):
+        if pd.api.types.is_bool_dtype(series):
+            # Boolean columns should be treated as categorical, not numeric
+            statistics.update(self._categorical_statistics(series))
+        elif pd.api.types.is_numeric_dtype(series):
             statistics.update(self._numeric_statistics(series))
         elif pd.api.types.is_datetime64_any_dtype(series):
             statistics.update(self._datetime_statistics(series))
