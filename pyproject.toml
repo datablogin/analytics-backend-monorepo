@@ -22,6 +22,8 @@ dependencies = [
     "python-multipart>=0.0.6",
     "pyjwt>=2.8.0",
     "passlib[bcrypt]>=1.7.4",
+    "pyyaml>=6.0.2",
+    "types-pyyaml>=6.0.12.20250516",
 ]
 
 [project.optional-dependencies]
