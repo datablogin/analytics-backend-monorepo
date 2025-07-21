@@ -32,7 +32,7 @@ jobs:
 
       - name: Run Claude Code
         id: claude
-        uses: anthropics/claude-code-action@beta
+        uses: anthropics/claude-code-action@v0.0.40
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
 
@@ -49,14 +49,20 @@ jobs:
           # Optional: Trigger when specific user is assigned to an issue
           # assignee_trigger: "claude-bot"
           
-          # Optional: Allow Claude to run specific commands
-          # allowed_tools: "Bash(npm install),Bash(npm run build),Bash(npm run test:*),Bash(npm run lint:*)"
+          # Allow Claude to run project-specific commands
+          allowed_tools: "Bash(make lint),Bash(make format),Bash(make type-check),Bash(make test),Bash(uv sync),Bash(make dev-install),Bash(make run-api),Bash(make migrate-upgrade),Bash(make migrate-create MESSAGE=*)"
           
-          # Optional: Add custom instructions for Claude to customize its behavior for your project
-          # custom_instructions: |
-          #   Follow our coding standards
-          #   Ensure all new code has tests
-          #   Use TypeScript for new files
+          # Custom instructions for analytics backend monorepo
+          custom_instructions: |
+            Follow the analytics backend monorepo conventions:
+            - Use Python 3.11+ features and type hints for all functions
+            - Follow ruff formatting (88 char line length)
+            - Use Pydantic for data validation and settings
+            - Use structured logging with structlog
+            - Follow async/await patterns for I/O operations
+            - Shared functionality goes in libs/, services are independent
+            - All code must pass linting, type checking, and tests
+            - Use feature branches and reference issue numbers in commits
           
           # Optional: Custom environment variables for Claude
           # claude_env: |
