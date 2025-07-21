@@ -416,29 +416,41 @@ async def metrics_endpoint():
 )
 async def observability_status(request: Request) -> StandardResponse[dict]:
     """Get observability stack status and configuration."""
-    obs_status = {
-        "enabled": True,
-        "tracing_enabled": True,
-        "metrics_enabled": True,
-        "logging_enabled": True,
-        "jaeger_endpoint": "http://localhost:14268/api/traces",
-        "prometheus_port": 8090,
-        "correlation_ids": True,
-        "instrumentation": {
-            "fastapi": True,
-            "requests": True,
-            "sqlalchemy": True,
-            "redis": True,
-        },
-    }
+    # Get actual configuration from observability manager
+    if hasattr(app.state, "observability_manager"):
+        obs_manager = app.state.observability_manager
+        config = obs_manager.config
 
-    if (
-        hasattr(app.state, "observability_manager")
-        and app.state.observability_manager.metrics_collector
-    ):
-        obs_status["metrics_summary"] = (
-            app.state.observability_manager.metrics_collector.get_metrics_summary()
-        )
+        obs_status = {
+            "enabled": config.enabled,
+            "tracing_enabled": config.tracing.enabled,
+            "metrics_enabled": config.metrics.enabled,
+            "logging_enabled": config.logging.enable_correlation,
+            "jaeger_endpoint": config.tracing.jaeger_endpoint,
+            "prometheus_port": config.metrics.prometheus_port,
+            "correlation_ids": config.logging.enable_correlation,
+            "service_name": config.service_name,
+            "service_version": config.service_version,
+            "environment": config.environment,
+            "instrumentation": {
+                "fastapi": True,
+                "requests": True,
+                "sqlalchemy": True,
+                "redis": True,
+            },
+        }
+
+        # Add metrics summary if available
+        if obs_manager.metrics_collector:
+            obs_status["metrics_summary"] = (
+                obs_manager.metrics_collector.get_metrics_summary()
+            )
+    else:
+        # Fallback if observability manager is not available
+        obs_status = {
+            "enabled": False,
+            "error": "Observability manager not initialized",
+        }
 
     return StandardResponse(
         success=True,

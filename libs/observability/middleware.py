@@ -68,12 +68,19 @@ class ObservabilityMiddleware(BaseHTTPMiddleware):
 
             # Add response attributes to span
             if span and span.is_recording():
+                # Get response size safely from headers instead of reading body
+                response_size = 0
+                content_length = response.headers.get("content-length")
+                if content_length:
+                    try:
+                        response_size = int(content_length)
+                    except (ValueError, TypeError):
+                        response_size = 0
+
                 add_span_attributes(
                     **{
                         "http.status_code": response.status_code,
-                        "http.response_size": len(response.body)
-                        if hasattr(response, "body")
-                        else 0,
+                        "http.response_size": response_size,
                         "request_duration_ms": duration * 1000,
                     }
                 )

@@ -129,11 +129,22 @@ class ObservabilityManager:
                     endpoint=self.config.metrics.prometheus_endpoint,
                 )
             except OSError as e:
-                logger.warning(
-                    "Failed to start Prometheus server",
-                    port=self.config.metrics.prometheus_port,
-                    error=str(e),
-                )
+                if "Address already in use" in str(e):
+                    logger.warning(
+                        "Prometheus port already in use, continuing without dedicated server",
+                        port=self.config.metrics.prometheus_port,
+                        error=str(e),
+                    )
+                else:
+                    logger.error(
+                        "Critical: Failed to start Prometheus server",
+                        port=self.config.metrics.prometheus_port,
+                        error=str(e),
+                    )
+                    # Raise for critical errors that aren't port conflicts
+                    raise RuntimeError(
+                        f"Unable to start Prometheus server on port {self.config.metrics.prometheus_port}: {e}"
+                    ) from e
 
         logger.debug("Metrics collection configured")
 

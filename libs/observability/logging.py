@@ -1,5 +1,6 @@
 """Enhanced structured logging with correlation and tracing integration."""
 
+import contextvars
 import logging
 import sys
 from typing import Any
@@ -8,6 +9,11 @@ import structlog
 from opentelemetry import trace
 
 from .config import LoggingConfig
+
+# Module-level ContextVar for correlation IDs
+correlation_id_var: contextvars.ContextVar[str | None] = contextvars.ContextVar(
+    "correlation_id", default=None
+)
 
 
 def configure_structured_logging(config: LoggingConfig) -> None:
@@ -85,14 +91,9 @@ def add_correlation_context(
     logger: Any, method_name: str, event_dict: dict[str, Any]
 ) -> dict[str, Any]:
     """Add correlation context to log entries."""
-    # This would integrate with request context middleware
-    # For now, we'll add a placeholder
+    # Use module-level correlation_id_var
     if "correlation_id" not in event_dict:
-        import contextvars
-
-        correlation_id_var = contextvars.ContextVar("correlation_id", default=None)
         correlation_id = correlation_id_var.get()
-
         if correlation_id:
             event_dict["correlation_id"] = correlation_id
 
@@ -112,17 +113,11 @@ def get_logger_with_correlation(name: str, **kwargs: Any) -> structlog.BoundLogg
 
 def set_correlation_id(correlation_id: str) -> None:
     """Set the correlation ID for the current context."""
-    import contextvars
-
-    correlation_id_var: contextvars.ContextVar[str | None] = contextvars.ContextVar("correlation_id")
     correlation_id_var.set(correlation_id)
 
 
 def get_correlation_id() -> str | None:
     """Get the current correlation ID."""
-    import contextvars
-
-    correlation_id_var = contextvars.ContextVar("correlation_id", default=None)
     return correlation_id_var.get()
 
 
