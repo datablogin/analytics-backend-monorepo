@@ -118,7 +118,10 @@ class TestMetricsCollector:
     @pytest.fixture
     def collector(self, metrics_config):
         """Create metrics collector instance."""
-        return MetricsCollector(metrics_config)
+        # Use separate registry for each test to avoid metric collisions
+        from prometheus_client import CollectorRegistry
+        registry = CollectorRegistry()
+        return MetricsCollector(metrics_config, registry=registry)
 
     def test_http_request_metrics(self, collector):
         """Test HTTP request metrics recording."""
@@ -126,14 +129,18 @@ class TestMetricsCollector:
             method="GET", endpoint="/test", status_code=200, duration=0.1
         )
 
-        # Verify metrics were recorded (would check Prometheus registry in real tests)
-        assert collector.system.http_requests_total._value.get() > 0
+        # Verify metrics were recorded by checking the metric samples
+        metric_samples = list(collector.system.http_requests_total.collect())
+        assert len(metric_samples) > 0
+        assert any(sample.value > 0 for metric in metric_samples for sample in metric.samples)
 
     def test_database_metrics(self, collector):
         """Test database metrics recording."""
         collector.record_db_query(operation="SELECT", table="users", duration=0.05)
 
-        assert collector.system.db_queries_total._value.get() > 0
+        metric_samples = list(collector.system.db_queries_total.collect())
+        assert len(metric_samples) > 0
+        assert any(sample.value > 0 for metric in metric_samples for sample in metric.samples)
 
     def test_business_metrics(self, collector):
         """Test business metrics recording."""
@@ -141,8 +148,13 @@ class TestMetricsCollector:
         collector.record_data_processing("test_dataset", 100, "success")
         collector.update_data_quality_score("test_dataset", 95.5)
 
-        assert collector.business.user_logins_total._value.get() > 0
-        assert collector.business.data_records_processed._value.get() >= 100
+        login_samples = list(collector.business.user_logins_total.collect())
+        assert len(login_samples) > 0
+        assert any(sample.value > 0 for metric in login_samples for sample in metric.samples)
+        
+        processing_samples = list(collector.business.data_records_processed.collect())
+        assert len(processing_samples) > 0
+        assert any(sample.value >= 100 for metric in processing_samples for sample in metric.samples)
 
     def test_metrics_summary(self, collector):
         """Test metrics summary generation."""
@@ -309,7 +321,9 @@ class TestSystemMetrics:
 
     def test_system_metrics_initialization(self):
         """Test system metrics are properly initialized."""
-        metrics = SystemMetrics(prefix="test")
+        from prometheus_client import CollectorRegistry
+        registry = CollectorRegistry()
+        metrics = SystemMetrics(prefix="test", registry=registry)
 
         assert metrics.http_requests_total is not None
         assert metrics.http_request_duration is not None
@@ -323,7 +337,9 @@ class TestBusinessMetrics:
 
     def test_business_metrics_initialization(self):
         """Test business metrics are properly initialized."""
-        metrics = BusinessMetrics(prefix="test")
+        from prometheus_client import CollectorRegistry
+        registry = CollectorRegistry()
+        metrics = BusinessMetrics(prefix="test", registry=registry)
 
         assert metrics.user_logins_total is not None
         assert metrics.data_records_processed is not None
