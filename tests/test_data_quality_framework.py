@@ -1,7 +1,7 @@
 """Tests for the data quality framework."""
 
 import tempfile
-from unittest.mock import Mock, patch
+from unittest.mock import Mock
 
 import pandas as pd
 import pytest
