@@ -1,0 +1,108 @@
+global:
+  smtp_smarthost: 'localhost:587'
+  smtp_from: 'alerts@analytics-backend.com'
+
+route:
+  group_by: ['alertname', 'service']
+  group_wait: 10s
+  group_interval: 10s
+  repeat_interval: 1h
+  receiver: 'default-receiver'
+  routes:
+    # Critical alerts go to PagerDuty and Slack immediately
+    - match:
+        severity: critical
+      receiver: 'critical-receiver'
+      group_wait: 0s
+      repeat_interval: 5m
+
+    # High priority alerts go to Slack
+    - match:
+        severity: high
+      receiver: 'high-priority-receiver'
+      repeat_interval: 15m
+
+    # Warning alerts go to Slack with lower priority
+    - match:
+        severity: warning
+      receiver: 'warning-receiver'
+      repeat_interval: 1h
+
+    # Business alerts have specific routing
+    - match:
+        category: business
+      receiver: 'business-receiver'
+      repeat_interval: 30m
+
+receivers:
+  - name: 'default-receiver'
+    email_configs:
+      - to: 'ops-team@analytics-backend.com'
+        subject: '[Analytics] {{ range .Alerts }}{{ .Annotations.summary }}{{ end }}'
+        body: |
+          {{ range .Alerts }}
+          Alert: {{ .Annotations.summary }}
+          Description: {{ .Annotations.description }}
+          Service: {{ .Labels.service }}
+          Severity: {{ .Labels.severity }}
+          Instance: {{ .Labels.instance }}
+          Time: {{ .StartsAt }}
+          {{ end }}
+
+  - name: 'critical-receiver'
+    slack_configs:
+      - api_url: 'YOUR_SLACK_WEBHOOK_URL'
+        channel: '#alerts-critical'
+        color: 'danger'
+        title: '🚨 CRITICAL ALERT: {{ range .Alerts }}{{ .Annotations.summary }}{{ end }}'
+        text: |
+          {{ range .Alerts }}
+          *Service*: {{ .Labels.service }}
+          *Severity*: {{ .Labels.severity }}
+          *Description*: {{ .Annotations.description }}
+          *Instance*: {{ .Labels.instance }}
+          *Started*: {{ .StartsAt.Format "2006-01-02 15:04:05" }}
+          {{ end }}
+    # PagerDuty integration would go here
+    webhook_configs:
+      - url: 'YOUR_PAGERDUTY_WEBHOOK_URL'
+        send_resolved: true
+
+  - name: 'high-priority-receiver'
+    slack_configs:
+      - api_url: 'YOUR_SLACK_WEBHOOK_URL'
+        channel: '#alerts-high'
+        color: 'warning'
+        title: '⚠️ HIGH PRIORITY: {{ range .Alerts }}{{ .Annotations.summary }}{{ end }}'
+
+  - name: 'warning-receiver'
+    slack_configs:
+      - api_url: 'YOUR_SLACK_WEBHOOK_URL'
+        channel: '#alerts-warnings'
+        color: 'good'
+        title: '⚡ Warning: {{ range .Alerts }}{{ .Annotations.summary }}{{ end }}'
+
+  - name: 'business-receiver'
+    slack_configs:
+      - api_url: 'YOUR_SLACK_WEBHOOK_URL'
+        channel: '#business-alerts'
+        color: 'good'
+        title: '📊 Business Alert: {{ range .Alerts }}{{ .Annotations.summary }}{{ end }}'
+    email_configs:
+      - to: 'business-team@analytics-backend.com'
+        subject: '[Business Alert] {{ range .Alerts }}{{ .Annotations.summary }}{{ end }}'
+
+inhibit_rules:
+  # Suppress warning alerts if critical alert is firing
+  - source_match:
+      severity: 'critical'
+    target_match:
+      severity: 'warning'
+    equal: ['service', 'instance']
+
+  # Suppress high priority alerts if critical alert is firing
+  - source_match:
+      severity: 'critical'
+    target_match:
+      severity: 'high'
+    equal: ['service', 'instance']

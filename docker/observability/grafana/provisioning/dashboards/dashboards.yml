@@ -1,0 +1,12 @@
+apiVersion: 1
+
+providers:
+  - name: 'analytics-dashboards'
+    orgId: 1
+    folder: 'Analytics Backend'
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 10
+    allowUiUpdates: true
+    options:
+      path: /var/lib/grafana/dashboards

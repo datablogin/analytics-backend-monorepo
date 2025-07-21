@@ -12,6 +12,7 @@ dependencies = [
     "structlog>=23.2.0",
     "analytics-core",
     "api-common",
+    "observability",
 ]
 
 [build-system]

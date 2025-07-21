@@ -47,9 +47,9 @@ class AuthService:
     ) -> str:
         to_encode = data.copy()
         if expires_delta:
-            expire = datetime.now(timezone.utc) + expires_delta
+            expire = datetime.now(timezone.utc) + expires_delta  # noqa: UP017
         else:
-            expire = datetime.now(timezone.utc) + timedelta(
+            expire = datetime.now(timezone.utc) + timedelta(  # noqa: UP017
                 minutes=ACCESS_TOKEN_EXPIRE_MINUTES
             )
         to_encode.update({"exp": expire})

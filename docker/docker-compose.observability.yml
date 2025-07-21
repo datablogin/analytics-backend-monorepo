@@ -1,0 +1,115 @@
+version: '3.8'
+
+services:
+  # Jaeger - Distributed Tracing
+  jaeger:
+    image: jaegertracing/all-in-one:1.52
+    container_name: analytics-jaeger
+    ports:
+      - "16686:16686"  # Jaeger UI
+      - "14268:14268"  # HTTP collector
+      - "14250:14250"  # gRPC collector
+      - "6831:6831/udp"  # Jaeger agent
+      - "6832:6832/udp"  # Jaeger agent
+    environment:
+      - COLLECTOR_OTLP_ENABLED=true
+      - JAEGER_DISABLED=false
+    networks:
+      - observability
+
+  # Prometheus - Metrics Collection
+  prometheus:
+    image: prom/prometheus:v2.48.0
+    container_name: analytics-prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--storage.tsdb.retention.time=30d'
+      - '--web.enable-lifecycle'
+      - '--web.enable-admin-api'
+    networks:
+      - observability
+
+  # Grafana - Metrics Visualization
+  grafana:
+    image: grafana/grafana:10.2.2
+    container_name: analytics-grafana
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin123
+      - GF_USERS_ALLOW_SIGN_UP=false
+      - GF_INSTALL_PLUGINS=grafana-piechart-panel,grafana-worldmap-panel
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./observability/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./observability/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    networks:
+      - observability
+
+  # AlertManager - Alert Handling
+  alertmanager:
+    image: prom/alertmanager:v0.26.0
+    container_name: analytics-alertmanager
+    ports:
+      - "9093:9093"
+    volumes:
+      - ./observability/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+      - alertmanager-data:/alertmanager
+    command:
+      - '--config.file=/etc/alertmanager/alertmanager.yml'
+      - '--storage.path=/alertmanager'
+      - '--web.external-url=http://localhost:9093'
+    networks:
+      - observability
+
+  # Redis - For metrics aggregation and caching
+  redis-metrics:
+    image: redis:7.2-alpine
+    container_name: analytics-redis-metrics
+    ports:
+      - "6380:6379"  # Different port to avoid conflicts
+    volumes:
+      - redis-metrics-data:/data
+    command: redis-server --appendonly yes
+    networks:
+      - observability
+
+  # OpenTelemetry Collector - Metrics and Traces Aggregation
+  otel-collector:
+    image: otel/opentelemetry-collector:0.91.0
+    container_name: analytics-otel-collector
+    ports:
+      - "4317:4317"   # OTLP gRPC receiver
+      - "4318:4318"   # OTLP HTTP receiver
+      - "8888:8888"   # Prometheus metrics exposed by the collector
+      - "8889:8889"   # Prometheus exporter metrics
+    volumes:
+      - ./observability/otel-collector-config.yml:/etc/otel-collector-config.yml:ro
+    command: ["--config=/etc/otel-collector-config.yml"]
+    depends_on:
+      - jaeger
+      - prometheus
+    networks:
+      - observability
+
+networks:
+  observability:
+    driver: bridge
+
+volumes:
+  prometheus-data:
+    driver: local
+  grafana-data:
+    driver: local
+  alertmanager-data:
+    driver: local
+  redis-metrics-data:
+    driver: local

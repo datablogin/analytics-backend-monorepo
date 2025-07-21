@@ -2,7 +2,7 @@ import time
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 
-from fastapi import Depends, FastAPI, Request
+from fastapi import Depends, FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -26,6 +26,12 @@ from libs.api_common.response_models import (
 )
 from libs.api_common.versioning import APIVersion, VersionedAPIRouter
 from libs.config.database import get_database_settings
+from libs.observability import (
+    ObservabilityMiddleware,
+    configure_observability,
+    get_observability_config,
+    trace_function,
+)
 from services.analytics_api.routes import admin, auth, data_quality
 
 
@@ -33,11 +39,19 @@ from services.analytics_api.routes import admin, auth, data_quality
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     """Application lifespan management."""
     # Startup
+
+    # Initialize observability first
+    obs_config = get_observability_config()
+    obs_config.service_name = "analytics-api"
+    obs_config.service_version = "1.0.0"
+    obs_manager = configure_observability(obs_config, app)
+
     db_settings = get_database_settings()
     db_manager = initialize_database(db_settings.database_url, db_settings.echo_sql)
 
     # Store in app state for access
     app.state.db_manager = db_manager
+    app.state.observability_manager = obs_manager
     app.state.start_time = time.time()
 
     yield
@@ -45,6 +59,9 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     # Shutdown
     if hasattr(app.state, "db_manager"):
         await app.state.db_manager.close()
+
+    if hasattr(app.state, "observability_manager"):
+        app.state.observability_manager.shutdown()
 
 
 app = FastAPI(
@@ -72,6 +89,7 @@ app = FastAPI(
 
 # Add middleware (order matters - first added is outermost)
 app.add_middleware(SecurityHeadersMiddleware)
+app.add_middleware(ObservabilityMiddleware, service_name="analytics-api")
 app.add_middleware(RateLimitMiddleware, requests_per_minute=100)
 app.add_middleware(RequestLoggingMiddleware)
 app.add_middleware(
@@ -125,11 +143,19 @@ async def custom_redoc_html():
 
 
 @app.get("/health", response_model=StandardResponse[HealthStatus], tags=["Health"])
+@trace_function(name="health_check", attributes={"endpoint": "/health"})
 async def health_check(request: Request) -> StandardResponse[HealthStatus]:
     """Basic health check endpoint with standardized response."""
     uptime = (
         time.time() - app.state.start_time if hasattr(app.state, "start_time") else None
     )
+
+    # Update metrics
+    if (
+        hasattr(app.state, "observability_manager")
+        and app.state.observability_manager.metrics_collector
+    ):
+        app.state.observability_manager.metrics_collector.update_uptime()
 
     health_data = HealthStatus(
         status="healthy",
@@ -319,6 +345,10 @@ async def get_version_info(request: Request) -> StandardResponse[dict]:
             "Rate Limiting",
             "Health Monitoring",
             "Database Migrations",
+            "OpenTelemetry Tracing",
+            "Prometheus Metrics",
+            "Structured Logging",
+            "Correlation IDs",
         ],
         "documentation": {
             "swagger_ui": "/docs",
@@ -356,13 +386,76 @@ async def get_api_stats(request: Request) -> StandardResponse[dict]:
         "documentation_endpoints": 2,  # /docs and /redoc
         "health_endpoints": 3,  # /health, /health/database, /health/detailed
         "versioned_endpoints": True,
-        "middleware_count": 5,  # Security, RateLimit, Logging, ResponseStandardization, CORS
+        "middleware_count": 6,  # Security, Observability, RateLimit, Logging, ResponseStandardization, CORS
     }
 
     return StandardResponse(
         success=True,
         data=stats_data,
         message="API statistics",
+        metadata=APIMetadata(
+            request_id=getattr(request.state, "request_id", "unknown"),
+            version="v1",
+            environment="development",
+        ),
+    )
+
+
+@app.get("/metrics", include_in_schema=False)
+async def metrics_endpoint():
+    """Prometheus metrics endpoint."""
+    from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
+
+    return Response(generate_latest(), media_type=CONTENT_TYPE_LATEST)
+
+
+@app.get(
+    "/observability/status",
+    response_model=StandardResponse[dict],
+    tags=["Observability"],
+)
+async def observability_status(request: Request) -> StandardResponse[dict]:
+    """Get observability stack status and configuration."""
+    # Get actual configuration from observability manager
+    if hasattr(app.state, "observability_manager"):
+        obs_manager = app.state.observability_manager
+        config = obs_manager.config
+
+        obs_status = {
+            "enabled": config.enabled,
+            "tracing_enabled": config.tracing.enabled,
+            "metrics_enabled": config.metrics.enabled,
+            "logging_enabled": config.logging.enable_correlation,
+            "jaeger_endpoint": config.tracing.jaeger_endpoint,
+            "prometheus_port": config.metrics.prometheus_port,
+            "correlation_ids": config.logging.enable_correlation,
+            "service_name": config.service_name,
+            "service_version": config.service_version,
+            "environment": config.environment,
+            "instrumentation": {
+                "fastapi": True,
+                "requests": True,
+                "sqlalchemy": True,
+                "redis": True,
+            },
+        }
+
+        # Add metrics summary if available
+        if obs_manager.metrics_collector:
+            obs_status["metrics_summary"] = (
+                obs_manager.metrics_collector.get_metrics_summary()
+            )
+    else:
+        # Fallback if observability manager is not available
+        obs_status = {
+            "enabled": False,
+            "error": "Observability manager not initialized",
+        }
+
+    return StandardResponse(
+        success=True,
+        data=obs_status,
+        message="Observability status retrieved",
         metadata=APIMetadata(
             request_id=getattr(request.state, "request_id", "unknown"),
             version="v1",

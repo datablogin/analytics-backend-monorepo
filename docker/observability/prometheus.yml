@@ -1,0 +1,92 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+rule_files:
+  - "alert_rules.yml"
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets:
+          - alertmanager:9093
+
+scrape_configs:
+  # Analytics API Service
+  - job_name: 'analytics-api'
+    static_configs:
+      - targets: ['host.docker.internal:8000']
+    metrics_path: '/metrics'
+    scrape_interval: 10s
+    scrape_timeout: 5s
+
+  # Prometheus metrics from services on different ports
+  - job_name: 'analytics-metrics'
+    static_configs:
+      - targets: ['host.docker.internal:8090']
+    metrics_path: '/metrics'
+    scrape_interval: 10s
+
+  # Data Ingestion Service
+  - job_name: 'data-ingestion'
+    static_configs:
+      - targets: ['host.docker.internal:8001']
+    metrics_path: '/metrics'
+    scrape_interval: 15s
+
+  # ML Inference Service
+  - job_name: 'ml-inference'
+    static_configs:
+      - targets: ['host.docker.internal:8002']
+    metrics_path: '/metrics'
+    scrape_interval: 15s
+
+  # Batch Processor Service
+  - job_name: 'batch-processor'
+    static_configs:
+      - targets: ['host.docker.internal:8003']
+    metrics_path: '/metrics'
+    scrape_interval: 30s
+
+  # System metrics from node exporters (if deployed)
+  - job_name: 'node-exporter'
+    static_configs:
+      - targets: ['node-exporter:9100']
+    scrape_interval: 15s
+
+  # Redis metrics
+  - job_name: 'redis'
+    static_configs:
+      - targets: ['redis-metrics:6379']
+    scrape_interval: 15s
+
+  # PostgreSQL metrics (if deployed)
+  - job_name: 'postgresql'
+    static_configs:
+      - targets: ['postgres-exporter:9187']
+    scrape_interval: 15s
+
+  # OpenTelemetry Collector metrics
+  - job_name: 'otel-collector'
+    static_configs:
+      - targets: ['otel-collector:8888']
+    scrape_interval: 10s
+
+  # Jaeger metrics
+  - job_name: 'jaeger'
+    static_configs:
+      - targets: ['jaeger:14269']
+    scrape_interval: 15s
+
+  # Self monitoring - Prometheus
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+    scrape_interval: 10s
+
+  # Grafana metrics
+  - job_name: 'grafana'
+    static_configs:
+      - targets: ['grafana:3000']
+    metrics_path: '/metrics'
+    scrape_interval: 15s
