@@ -84,14 +84,14 @@ class SimpleDataQualityFramework:
 
             for expectation in expectations:
                 try:
-                    result = self._validate_expectation(df, expectation)
-                    results.append(result)
-                    if not result["success"]:
+                    validation_result = self._validate_expectation(df, expectation)
+                    results.append(validation_result)
+                    if not validation_result["success"]:
                         failures.append(
                             {
                                 "expectation_type": expectation.expectation_type,
                                 "kwargs": expectation.kwargs,
-                                "result": result,
+                                "result": validation_result,
                             }
                         )
                 except Exception as e:

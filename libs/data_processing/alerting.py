@@ -230,20 +230,20 @@ class DataQualityAlerting:
 
         body = f"""
         Data Quality Alert
-        
+
         Severity: {alert.severity.upper()}
         Dataset: {alert.dataset_name}
         Time: {alert.timestamp.isoformat()}
-        
+
         {alert.message}
-        
+
         Details:
         {json.dumps(alert.details, indent=2)}
         """
 
         msg.attach(MIMEText(body, "plain"))
 
-        server = smtplib.SMTP(config["smtp_server"], config.get("smtp_port", 587))
+        server = smtplib.SMTP(config["smtp_server"], int(config.get("smtp_port", 587)))
         if config.get("use_tls", True):
             server.starttls()
         if config.get("username") and config.get("password"):
@@ -314,7 +314,8 @@ class DataQualityAlerting:
         import httpx
 
         webhook_url = self.config.webhook_config["url"]
-        headers = self.config.webhook_config.get("headers", {})
+        raw_headers: dict[str, str] | str = self.config.webhook_config.get("headers", {})
+        headers: dict[str, str] = dict(raw_headers) if isinstance(raw_headers, dict) else {}
 
         payload = {
             "alert_id": alert.id,

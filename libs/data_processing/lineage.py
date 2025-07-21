@@ -233,7 +233,7 @@ class DataLineageTracker:
         downstream_assets = self.get_downstream_assets(asset_id)
 
         # Group downstream assets by type
-        impact_by_type = {}
+        impact_by_type: dict[str, list[dict[str, str]]] = {}
         for downstream_id in downstream_assets:
             downstream_asset = self.graph.assets[downstream_id]
             asset_type = downstream_asset.type

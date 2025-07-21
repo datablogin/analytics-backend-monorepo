@@ -327,6 +327,9 @@ class DataProfiler:
         self, profile1: DataProfile, profile2: DataProfile
     ) -> dict[str, Any]:
         """Compare two data profiles to detect drift."""
+        column_changes: dict[str, dict[str, float]] = {}
+        warnings: list[str] = []
+        
         comparison = {
             "dataset1": profile1.dataset_name,
             "dataset2": profile2.dataset_name,
@@ -336,8 +339,8 @@ class DataProfiler:
             - profile1.missing_cells_percentage,
             "duplicate_percentage_change": profile2.duplicate_rows_percentage
             - profile1.duplicate_rows_percentage,
-            "column_changes": {},
-            "warnings": [],
+            "column_changes": column_changes,
+            "warnings": warnings,
         }
 
         # Compare common columns
@@ -346,7 +349,7 @@ class DataProfiler:
             col1 = profile1.columns[col]
             col2 = profile2.columns[col]
 
-            comparison["column_changes"][col] = {
+            column_changes[col] = {
                 "missing_percentage_change": col2["missing_percentage"]
                 - col1["missing_percentage"],
                 "unique_percentage_change": col2["unique_percentage"]
@@ -355,7 +358,7 @@ class DataProfiler:
 
             # Check for significant changes
             if abs(col2["missing_percentage"] - col1["missing_percentage"]) > 5:
-                comparison["warnings"].append(
+                warnings.append(
                     f"Column {col}: missing data changed by {col2['missing_percentage'] - col1['missing_percentage']:.1f}%"
                 )
 
@@ -364,11 +367,11 @@ class DataProfiler:
         removed_columns = set(profile1.columns.keys()) - set(profile2.columns.keys())
 
         if new_columns:
-            comparison["warnings"].append(
+            warnings.append(
                 f"New columns detected: {', '.join(new_columns)}"
             )
         if removed_columns:
-            comparison["warnings"].append(
+            warnings.append(
                 f"Columns removed: {', '.join(removed_columns)}"
             )
 
