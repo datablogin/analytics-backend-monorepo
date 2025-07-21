@@ -273,6 +273,8 @@ class TestObservabilityMiddleware:
         request.url.hostname = "localhost"
         request.headers = {"user-agent": "test-agent"}
         request.state = Mock()
+        # Add scope attribute as a dictionary to prevent "argument of type 'Mock' is not iterable" error
+        request.scope = {"type": "http", "path": "/test"}
         return request
 
     @pytest.fixture

@@ -32,9 +32,18 @@ def configure_structured_logging(config: LoggingConfig) -> None:
 
     # Add configured processors
     for processor_name in config.processors:
-        if hasattr(structlog.processors, processor_name.split(".")[-1]):
-            processor = getattr(structlog.processors, processor_name.split(".")[-1])
-            if callable(processor):
+        processor_short_name = processor_name.split(".")[-1]
+        if hasattr(structlog.processors, processor_short_name):
+            processor = getattr(structlog.processors, processor_short_name)
+            # Some processors like add_log_level are functions, others like TimeStamper are classes
+            if processor_short_name == "add_log_level":
+                # This is a function, add it directly
+                processors.append(processor)
+            elif processor_short_name == "StackInfoRenderer":
+                # StackInfoRenderer is a class that needs instantiation
+                processors.append(processor())
+            elif callable(processor):
+                # These are classes that need to be instantiated (like TimeStamper)
                 processors.append(processor())
             else:
                 processors.append(processor)
