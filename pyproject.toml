@@ -26,6 +26,8 @@ dependencies = [
     "types-pyyaml>=6.0.12.20250516",
     "aiofiles>=24.1.0",
     "types-aiofiles>=24.1.0.20250708",
+    "great-expectations>=1.5.5",
+    "pandas-profiling>=3.6.6",
 ]
 
 [project.optional-dependencies]

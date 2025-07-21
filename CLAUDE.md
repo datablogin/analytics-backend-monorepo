@@ -27,6 +27,12 @@
 - `uv add <package>`: Add new dependency
 - `uv remove <package>`: Remove dependency
 
+### Data Quality Commands
+- `make test -k test_data_quality`: Run data quality framework tests
+- `python -m libs.data_processing.data_quality_simple`: Test validation framework
+- `python -c "from libs.data_processing import DataProfiler; print('Profiler ready')"`: Test profiler
+- `python -c "from libs.data_processing import DataLineageTracker; print('Lineage ready')"`: Test lineage tracker
+
 ### Issue Management Commands
 - `gh issue list --state open`: List all open issues
 - `gh issue list --label "needs-triage"`: List issues needing triage
@@ -41,7 +47,7 @@
 /
 ├── libs/                          # Shared libraries
 │   ├── analytics_core/            # Core analytics utilities
-│   ├── data_processing/           # ETL and data transformation
+│   ├── data_processing/           # ETL, data transformation & quality
 │   ├── ml_models/                # ML model utilities
 │   ├── api_common/               # Shared API components
 │   └── config/                   # Configuration management
@@ -141,3 +147,38 @@
 - Use pytest with async support
 - Test coverage should be >80%
 - Mock external dependencies in tests
+
+## Data Quality Framework
+
+The platform includes a comprehensive data quality framework with the following capabilities:
+
+### Core Features
+- **Data Validation**: Automated quality checks using configurable expectations
+- **Data Profiling**: Statistical analysis and quality assessment  
+- **Lineage Tracking**: Complete data asset and transformation tracking
+- **Quality Monitoring**: Real-time dashboards and KPI tracking via API endpoints
+- **Alerting System**: Multi-channel alerts for quality violations
+
+### Key Components
+- `libs/data_processing/data_quality_simple.py`: Main validation framework
+- `libs/data_processing/profiling.py`: Data profiling and statistics
+- `libs/data_processing/lineage.py`: Data lineage tracking system
+- `libs/data_processing/alerting.py`: Quality violation alerting
+- `services/analytics_api/routes/data_quality.py`: Monitoring API endpoints
+- `services/data_ingestion/main.py`: Integrated quality checkpoints
+
+### Quality KPIs
+- **Validation Success Rate**: Target 99.5% for production datasets
+- **Lineage Coverage**: 100% coverage for production data assets
+- **Detection Time**: <15 minutes for quality violations
+- **Data Quality Score**: Overall quality percentage across all datasets
+
+### API Endpoints
+- `GET /data-quality/metrics`: Overall quality metrics and KPIs
+- `GET /data-quality/validations`: Recent validation results
+- `GET /data-quality/profiles`: Data profiling results
+- `GET /data-quality/lineage/{asset_name}`: Asset lineage information
+- `GET /data-quality/alerts`: Quality violation alerts
+
+### Usage Documentation
+See `docs/data_quality_framework.md` for comprehensive setup and usage instructions.
