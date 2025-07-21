@@ -114,10 +114,18 @@
 
 ### Pull Request Process
 - Use the PR template for all submissions
-- Link to related issues with "Closes #123" syntax
+- **REQUIRED**: Always include issue linking syntax in PR description: `Closes #123` or `Fixes #123`
 - Include comprehensive test coverage
 - Ensure all CI/CD checks pass
 - Request review from appropriate team members
+
+### GitHub Issue Linking Rules
+**CRITICAL**: Every PR must include proper GitHub linking syntax to automatically close related issues:
+- Use `Closes #123` for feature implementations
+- Use `Fixes #123` for bug fixes  
+- Use `Resolves #123` for general issue resolution
+- Place the linking text in the PR description (not just commit messages)
+- Multiple issues can be referenced: `Closes #123, Fixes #456`
 
 ### Backlog Grooming
 - Regular backlog review using `/groom-backlog` command
