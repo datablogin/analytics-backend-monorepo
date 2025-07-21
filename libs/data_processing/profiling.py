@@ -266,13 +266,13 @@ class DataProfiler:
         warnings = []
 
         # High missing data
-        if missing_percentage > 20:
+        if missing_percentage > 2:
             warnings.append(
                 f"High missing data: {missing_percentage:.1f}% of cells are empty"
             )
 
         # High duplicate rate
-        if duplicate_percentage > 10:
+        if duplicate_percentage > 5:
             warnings.append(
                 f"High duplicate rate: {duplicate_percentage:.1f}% of rows are duplicated"
             )

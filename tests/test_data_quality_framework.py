@@ -132,11 +132,11 @@ class TestDataProfiler:
         """Create sample DataFrame for profiling."""
         return pd.DataFrame(
             {
-                "id": [1, 2, 3, 4, 5, 5],  # Duplicate value
-                "name": ["Alice", "Bob", None, "Dave", "Eve", "Frank"],  # Missing value
-                "age": [25, 30, 35, 40, 28, 45],
-                "score": [95.5, 87.2, 92.1, 88.9, 94.3, 91.0],
-                "active": [True, False, True, True, False, True],
+                "id": [1, 2, 3, 4, 5, 1],  # Duplicate row (row 0 and 5 identical)
+                "name": ["Alice", "Bob", None, "Dave", "Eve", "Alice"],  # Missing value + duplicate
+                "age": [25, 30, 35, 40, 28, 25],  # Duplicate row
+                "score": [95.5, 87.2, 92.1, 88.9, 94.3, 95.5],  # Duplicate row
+                "active": [True, False, True, True, False, True],  # Duplicate row
                 "created_at": pd.to_datetime(
                     [
                         "2023-01-01",
@@ -144,7 +144,7 @@ class TestDataProfiler:
                         "2023-01-03",
                         "2023-01-04",
                         "2023-01-05",
-                        "2023-01-06",
+                        "2023-01-01",  # Duplicate row
                     ]
                 ),
             }
@@ -410,11 +410,12 @@ class TestDataQualityAlerting:
         alerts2 = alerting_system.evaluate_validation_result(validation_result)
         assert len(alerts2) == 0
 
-    @patch("libs.data_processing.alerting.structlog")
-    def test_log_alert_sending(self, mock_structlog, alerting_system):
+    def test_log_alert_sending(self, alerting_system):
         """Test sending alerts via logging."""
         mock_logger = Mock()
-        mock_structlog.get_logger.return_value = mock_logger
+        # Patch the logger instance directly on the alerting system
+        original_logger = alerting_system.logger
+        alerting_system.logger = mock_logger
 
         rule = AlertRule(
             id="log_rule",
@@ -435,6 +436,9 @@ class TestDataQualityAlerting:
 
         alerts = alerting_system.evaluate_validation_result(validation_result)
         alerting_system.send_alerts(alerts)
+
+        # Restore original logger
+        alerting_system.logger = original_logger
 
         # Verify logger was called
         assert mock_logger.warning.called
