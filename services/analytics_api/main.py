@@ -4,7 +4,6 @@ from contextlib import asynccontextmanager
 
 from fastapi import Depends, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from libs.analytics_core.auth import get_current_user
@@ -109,22 +108,18 @@ app.openapi = lambda: create_enhanced_openapi_schema(
 @app.get("/docs", include_in_schema=False)
 async def custom_swagger_ui_html():
     """Custom Swagger UI documentation."""
-    return HTMLResponse(
-        create_custom_docs_html(
-            openapi_url="/openapi.json",
-            title="Analytics API - Interactive Documentation",
-        )
+    return create_custom_docs_html(
+        openapi_url="/openapi.json",
+        title="Analytics API - Interactive Documentation",
     )
 
 
 @app.get("/redoc", include_in_schema=False)
 async def custom_redoc_html():
     """Custom ReDoc documentation."""
-    return HTMLResponse(
-        create_custom_redoc_html(
-            openapi_url="/openapi.json",
-            title="Analytics API - Documentation",
-        )
+    return create_custom_redoc_html(
+        openapi_url="/openapi.json",
+        title="Analytics API - Documentation",
     )
 
 

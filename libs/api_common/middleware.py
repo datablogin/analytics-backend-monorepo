@@ -1,6 +1,8 @@
 """Middleware for standardized API responses and error handling."""
 
+import json
 import time
+from datetime import datetime
 from uuid import uuid4
 
 from fastapi import HTTPException, Request, Response, status
@@ -16,6 +18,13 @@ from .response_models import (
     ValidationErrorDetail,
     ValidationErrorResponse,
 )
+
+
+def json_encoder(obj):
+    """Custom JSON encoder for datetime objects."""
+    if isinstance(obj, datetime):
+        return obj.isoformat()
+    raise TypeError(f"Object of type {obj.__class__.__name__} is not JSON serializable")
 
 
 class ResponseStandardizationMiddleware(BaseHTTPMiddleware):
@@ -92,7 +101,9 @@ class ResponseStandardizationMiddleware(BaseHTTPMiddleware):
 
         return JSONResponse(
             status_code=status_code,
-            content=error_response.model_dump(),
+            content=json.loads(
+                json.dumps(error_response.model_dump(), default=json_encoder)
+            ),
             headers={
                 "X-Request-ID": request_id,
                 "X-API-Version": self.version,
@@ -144,7 +155,9 @@ class ResponseStandardizationMiddleware(BaseHTTPMiddleware):
 
         return JSONResponse(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            content=error_response.model_dump(),
+            content=json.loads(
+                json.dumps(error_response.model_dump(), default=json_encoder)
+            ),
             headers={
                 "X-Request-ID": request_id,
                 "X-API-Version": self.version,
@@ -231,7 +244,9 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
 
             return JSONResponse(
                 status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-                content=error_response.model_dump(),
+                content=json.loads(
+                    json.dumps(error_response.model_dump(), default=json_encoder)
+                ),
                 headers={
                     "X-RateLimit-Limit": str(self.requests_per_minute),
                     "X-RateLimit-Remaining": "0",
