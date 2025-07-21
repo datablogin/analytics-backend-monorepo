@@ -329,7 +329,7 @@ class DataProfiler:
         """Compare two data profiles to detect drift."""
         column_changes: dict[str, dict[str, float]] = {}
         warnings: list[str] = []
-        
+
         comparison = {
             "dataset1": profile1.dataset_name,
             "dataset2": profile2.dataset_name,
