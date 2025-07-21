@@ -16,7 +16,13 @@ def test_health_check(client):
     """Test health check endpoint."""
     response = client.get("/health")
     assert response.status_code == 200
-    assert response.json() == {"status": "healthy"}
+
+    data = response.json()
+    assert data["success"] is True
+    assert data["message"] == "Service is healthy"
+    assert "data" in data
+    assert data["data"]["status"] == "healthy"
+    assert "metadata" in data
 
 
 def test_app_metadata():
@@ -24,6 +30,6 @@ def test_app_metadata():
     assert app.title == "Analytics API"
     assert (
         app.description
-        == "Analytics backend REST API with JWT authentication, RBAC and database migrations"
+        == "Comprehensive Analytics backend REST API with automatic OpenAPI documentation, standardized responses, JWT authentication, RBAC, and database migrations"
     )
-    assert app.version == "0.1.0"
+    assert app.version == "1.0.0"

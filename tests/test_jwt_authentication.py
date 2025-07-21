@@ -171,7 +171,7 @@ class TestJWTTokens:
 class TestAuthenticationRoutes:
     def test_register_user(self, setup_test_db):
         response = client.post(
-            "/auth/register",
+            "/v1/auth/register",
             json={
                 "username": "newuser",
                 "email": "newuser@example.com",
@@ -190,7 +190,7 @@ class TestAuthenticationRoutes:
 
     def test_register_duplicate_user(self, test_user):
         response = client.post(
-            "/auth/register",
+            "/v1/auth/register",
             json={
                 "username": "testuser",  # Same as test_user
                 "email": "different@example.com",
@@ -204,7 +204,7 @@ class TestAuthenticationRoutes:
 
     def test_login_valid_credentials(self, test_user):
         response = client.post(
-            "/auth/token",
+            "/v1/auth/token",
             data={"username": "testuser", "password": "testpassword123"},
         )
 
@@ -216,7 +216,7 @@ class TestAuthenticationRoutes:
 
     def test_login_invalid_credentials(self, test_user):
         response = client.post(
-            "/auth/token",
+            "/v1/auth/token",
             data={"username": "testuser", "password": "wrongpassword"},
         )
 
@@ -226,14 +226,14 @@ class TestAuthenticationRoutes:
     def test_get_current_user_info(self, test_user):
         # First login to get token
         login_response = client.post(
-            "/auth/token",
+            "/v1/auth/token",
             data={"username": "testuser", "password": "testpassword123"},
         )
         token = login_response.json()["access_token"]
 
         # Then access protected endpoint
         response = client.get(
-            "/auth/me",
+            "/v1/auth/me",
             headers={"Authorization": f"Bearer {token}"},
         )
 
@@ -249,7 +249,7 @@ class TestAuthenticationRoutes:
     def test_protected_endpoint_with_token(self, test_user):
         # Login to get token
         login_response = client.post(
-            "/auth/token",
+            "/v1/auth/token",
             data={"username": "testuser", "password": "testpassword123"},
         )
         token = login_response.json()["access_token"]
@@ -262,19 +262,20 @@ class TestAuthenticationRoutes:
 
         assert response.status_code == 200
         data = response.json()
-        assert "Hello testuser" in data["message"]
+        assert data["success"] is True
+        assert "Hello testuser" in data["data"]["message"]
 
     def test_change_password(self, test_user):
         # Login to get token
         login_response = client.post(
-            "/auth/token",
+            "/v1/auth/token",
             data={"username": "testuser", "password": "testpassword123"},
         )
         token = login_response.json()["access_token"]
 
         # Change password
         response = client.post(
-            "/auth/change-password",
+            "/v1/auth/change-password",
             json={
                 "current_password": "testpassword123",
                 "new_password": "newpassword123",
@@ -287,14 +288,14 @@ class TestAuthenticationRoutes:
 
         # Test old password no longer works
         old_login = client.post(
-            "/auth/token",
+            "/v1/auth/token",
             data={"username": "testuser", "password": "testpassword123"},
         )
         assert old_login.status_code == 401
 
         # Test new password works
         new_login = client.post(
-            "/auth/token",
+            "/v1/auth/token",
             data={"username": "testuser", "password": "newpassword123"},
         )
         assert new_login.status_code == 200
@@ -304,14 +305,14 @@ class TestRoleBasedAccessControl:
     def test_create_role_as_admin(self, admin_user):
         # Login as admin
         login_response = client.post(
-            "/auth/token",
+            "/v1/auth/token",
             data={"username": "admin", "password": "adminpassword123"},
         )
         token = login_response.json()["access_token"]
 
         # Create role
         response = client.post(
-            "/admin/roles",
+            "/v1/admin/roles",
             json={
                 "name": "data_analyst",
                 "description": "Data analyst role",
@@ -328,14 +329,14 @@ class TestRoleBasedAccessControl:
     def test_create_role_as_regular_user(self, test_user):
         # Login as regular user
         login_response = client.post(
-            "/auth/token",
+            "/v1/auth/token",
             data={"username": "testuser", "password": "testpassword123"},
         )
         token = login_response.json()["access_token"]
 
         # Try to create role (should fail)
         response = client.post(
-            "/admin/roles",
+            "/v1/admin/roles",
             json={
                 "name": "unauthorized_role",
                 "description": "Should not be created",
@@ -350,14 +351,14 @@ class TestRoleBasedAccessControl:
     def test_assign_role_to_user(self, admin_user, test_user, test_role):
         # Login as admin
         login_response = client.post(
-            "/auth/token",
+            "/v1/auth/token",
             data={"username": "admin", "password": "adminpassword123"},
         )
         token = login_response.json()["access_token"]
 
         # Assign role to user
         response = client.post(
-            f"/admin/users/{test_user.id}/roles",
+            f"/v1/admin/users/{test_user.id}/roles",
             json={"user_id": test_user.id, "role_id": test_role.id},
             headers={"Authorization": f"Bearer {token}"},
         )
@@ -368,14 +369,14 @@ class TestRoleBasedAccessControl:
     def test_get_users_with_roles(self, admin_user):
         # Login as admin
         login_response = client.post(
-            "/auth/token",
+            "/v1/auth/token",
             data={"username": "admin", "password": "adminpassword123"},
         )
         token = login_response.json()["access_token"]
 
         # Get users with roles
         response = client.get(
-            "/admin/users",
+            "/v1/admin/users",
             headers={"Authorization": f"Bearer {token}"},
         )
 
