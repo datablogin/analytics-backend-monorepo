@@ -262,7 +262,8 @@ class TestAuthenticationRoutes:
 
         assert response.status_code == 200
         data = response.json()
-        assert "Hello testuser" in data["message"]
+        assert data["success"] is True
+        assert "Hello testuser" in data["data"]["message"]
 
     def test_change_password(self, test_user):
         # Login to get token
