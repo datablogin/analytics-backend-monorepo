@@ -16,10 +16,9 @@ from sqlalchemy import (
     Integer,
     String,
     Text,
-    create_engine,
 )
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.ext.declarative import DeclarativeMeta, declarative_base
-from sqlalchemy.orm import sessionmaker
 
 from ..data_processing.lineage import DataLineageTracker
 from ..observability.metrics import MLOpsMetrics
@@ -331,9 +330,17 @@ class FeatureStore:
         self.metrics = MLOpsMetrics()
 
         # Database setup
-        self.engine = create_engine(self.config.database_url)
-        Base.metadata.create_all(self.engine)
-        self.SessionLocal = sessionmaker(bind=self.engine)
+        # Convert SQLite URLs to async format
+        database_url = self.config.database_url
+        if database_url.startswith("sqlite:///"):
+            database_url = database_url.replace("sqlite:///", "sqlite+aiosqlite:///")
+        elif database_url.startswith("postgresql://"):
+            database_url = database_url.replace(
+                "postgresql://", "postgresql+asyncpg://"
+            )
+
+        self.engine = create_async_engine(database_url)
+        self.SessionLocal = async_sessionmaker(bind=self.engine)
 
         # Cache setup
         self._setup_cache()
@@ -358,6 +365,13 @@ class FeatureStore:
             lineage_enabled=self.config.enable_lineage_tracking,
         )
 
+    async def initialize_tables(self) -> None:
+        """Initialize database tables asynchronously."""
+        async with self.engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+
+        logger.info("Feature store tables initialized")
+
     def _setup_cache(self) -> None:
         """Setup caching backend."""
         if self.config.cache_backend == "redis" and self.config.redis_url:
@@ -377,42 +391,40 @@ class FeatureStore:
                 self.feature_cache: dict[str, dict[str, Any]] = {}
         else:
             self.cache_client = None
-        
-        # Initialize feature cache
-        self.feature_cache: dict[str, dict[str, Any]] = {}
+            # Initialize feature cache
+            self.feature_cache: dict[str, dict[str, Any]] = {}
 
-    def create_feature(self, feature_def: FeatureDefinition) -> str:
+    async def create_feature(self, feature_def: FeatureDefinition) -> str:
         """Create a new feature definition."""
         try:
-            session = self.SessionLocal()
+            async with self.SessionLocal() as session:
+                # Check if feature already exists
+                from sqlalchemy import select
 
-            # Check if feature already exists
-            existing = (
-                session.query(FeatureDefinitionModel)
-                .filter(FeatureDefinitionModel.name == feature_def.name)
-                .first()
-            )
+                stmt = select(FeatureDefinitionModel).where(
+                    FeatureDefinitionModel.name == feature_def.name
+                )
+                result = await session.execute(stmt)
+                existing = result.scalar_one_or_none()
 
-            if existing:
-                raise ValueError(f"Feature '{feature_def.name}' already exists")
+                if existing:
+                    raise ValueError(f"Feature '{feature_def.name}' already exists")
 
-            # Create feature
-            feature_model = FeatureDefinitionModel(
-                name=feature_def.name,
-                description=feature_def.description,
-                feature_type=feature_def.feature_type,
-                data_type=feature_def.data_type,
-                source_table=feature_def.source_table,
-                transformation_logic=feature_def.transformation_logic,
-                owner=feature_def.owner,
-                tags=json.dumps(feature_def.tags),
-            )
+                # Create feature
+                feature_model = FeatureDefinitionModel(
+                    name=feature_def.name,
+                    description=feature_def.description,
+                    feature_type=feature_def.feature_type,
+                    data_type=feature_def.data_type,
+                    source_table=feature_def.source_table,
+                    transformation_logic=feature_def.transformation_logic,
+                    owner=feature_def.owner,
+                    tags=json.dumps(feature_def.tags),
+                )
 
-            session.add(feature_model)
-            session.commit()
-
-            feature_id = feature_model.id
-            session.close()
+                session.add(feature_model)
+                await session.commit()
+                feature_id = feature_model.id
 
             # Record metrics
             self.metrics.record_feature_creation(
@@ -438,36 +450,37 @@ class FeatureStore:
             )
             raise
 
-    def get_feature_definition(self, feature_name: str) -> FeatureDefinition | None:
+    async def get_feature_definition(
+        self, feature_name: str
+    ) -> FeatureDefinition | None:
         """Get feature definition by name."""
         try:
-            session = self.SessionLocal()
+            async with self.SessionLocal() as session:
+                from sqlalchemy import select
 
-            feature_model = (
-                session.query(FeatureDefinitionModel)
-                .filter(FeatureDefinitionModel.name == feature_name)
-                .first()
-            )
+                stmt = select(FeatureDefinitionModel).where(
+                    FeatureDefinitionModel.name == feature_name
+                )
+                result = await session.execute(stmt)
+                feature_model = result.scalar_one_or_none()
 
-            session.close()
+                if not feature_model:
+                    return None
 
-            if not feature_model:
-                return None
+                feature_def = FeatureDefinition(
+                    name=feature_model.name,
+                    description=feature_model.description,
+                    feature_type=feature_model.feature_type,
+                    data_type=feature_model.data_type,
+                    source_table=feature_model.source_table,
+                    transformation_logic=feature_model.transformation_logic,
+                    owner=feature_model.owner,
+                    tags=(json.loads(feature_model.tags) if feature_model.tags else []),
+                    created_at=feature_model.created_at.replace(tzinfo=timezone.utc),
+                    updated_at=feature_model.updated_at.replace(tzinfo=timezone.utc),
+                )
 
-            feature_def = FeatureDefinition(
-                name=feature_model.name,  # type: ignore[arg-type]
-                description=feature_model.description,  # type: ignore[arg-type]
-                feature_type=feature_model.feature_type,  # type: ignore[arg-type]
-                data_type=feature_model.data_type,  # type: ignore[arg-type]
-                source_table=feature_model.source_table,  # type: ignore[arg-type]
-                transformation_logic=feature_model.transformation_logic,  # type: ignore[arg-type]
-                owner=feature_model.owner,  # type: ignore[arg-type]
-                tags=json.loads(feature_model.tags) if feature_model.tags else [],  # type: ignore[arg-type]
-                created_at=feature_model.created_at.replace(tzinfo=timezone.utc),
-                updated_at=feature_model.updated_at.replace(tzinfo=timezone.utc),
-            )
-
-            return feature_def
+                return feature_def
 
         except Exception as error:
             logger.error(
@@ -477,49 +490,49 @@ class FeatureStore:
             )
             return None
 
-    def write_features(
+    async def write_features(
         self,
         feature_values: list[FeatureValue],
         batch_size: int = 1000,
     ) -> int:
         """Write feature values to store."""
         try:
-            session = self.SessionLocal()
-            written_count = 0
+            async with self.SessionLocal() as session:
+                written_count = 0
 
-            for i in range(0, len(feature_values), batch_size):
-                batch = feature_values[i : i + batch_size]
+                for i in range(0, len(feature_values), batch_size):
+                    batch = feature_values[i : i + batch_size]
 
-                # Validate features
-                if self.config.enable_feature_validation:
-                    self._validate_feature_batch(batch)
+                    # Validate features
+                    if self.config.enable_feature_validation:
+                        self._validate_feature_batch(batch)
 
-                # Convert to database models
-                feature_models = []
-                for fv in batch:
-                    feature_model = FeatureValueModel(
-                        feature_name=fv.feature_name,
-                        entity_id=fv.entity_id,
-                        feature_value=json.dumps(fv.value),
-                        created_at=fv.ingestion_timestamp,
-                        valid_from=fv.valid_from,
-                        valid_until=fv.valid_until,
-                        event_timestamp=fv.event_timestamp,
-                        source=fv.source,
-                        data_quality_score=fv.quality_score,
-                    )
-                    feature_models.append(feature_model)
+                    # Convert to database models
+                    feature_models = []
+                    for fv in batch:
+                        feature_model = FeatureValueModel(
+                            feature_name=fv.feature_name,
+                            entity_id=fv.entity_id,
+                            feature_value=json.dumps(fv.value),
+                            created_at=fv.ingestion_timestamp,
+                            valid_from=fv.valid_from,
+                            valid_until=fv.valid_until,
+                            event_timestamp=fv.event_timestamp,
+                            source=fv.source,
+                            data_quality_score=fv.quality_score,
+                        )
+                        feature_models.append(feature_model)
 
-                # Bulk insert
-                session.bulk_save_objects(feature_models)
-                session.commit()
-                written_count += len(batch)
+                    # Add models to session
+                    for model in feature_models:
+                        session.add(model)
+                    
+                    await session.commit()
+                    written_count += len(batch)
 
-                # Update cache if enabled
-                if self.config.enable_feature_caching:
-                    self._update_feature_cache(batch)
-
-            session.close()
+                    # Update cache if enabled
+                    if self.config.enable_feature_caching:
+                        self._update_feature_cache(batch)
 
             # Record metrics
             self.metrics.record_feature_write(
@@ -734,18 +747,136 @@ class FeatureStore:
         input_data: pd.DataFrame,
         parameters: dict[str, Any] | None = None,
     ) -> pd.DataFrame:
-        """Execute Python-based transformation."""
+        """Execute Python-based transformation with security restrictions."""
         try:
-            # Create safe execution environment
-            local_vars = {
-                "df": input_data,
+            # Use AST parsing for safer code execution
+            import ast
+            import operator
+
+            # Parse the transformation code
+            try:
+                parsed = ast.parse(transformation.transformation_code)
+            except SyntaxError as e:
+                raise ValueError(f"Invalid transformation syntax: {e}")
+
+            # Define safe operations - whitelist approach
+            safe_nodes = {
+                ast.Expression,
+                ast.Load,
+                ast.Store,
+                ast.Assign,
+                ast.Name,
+                ast.Constant,
+                ast.Attribute,
+                ast.Subscript,
+                ast.BinOp,
+                ast.Compare,
+                ast.Call,
+                ast.arg,
+                ast.Index,
+                ast.Slice,
+                ast.List,
+                ast.Dict,
+                ast.Add,
+                ast.Sub,
+                ast.Mult,
+                ast.Div,
+                ast.Mod,
+                ast.Eq,
+                ast.NotEq,
+                ast.Lt,
+                ast.LtE,
+                ast.Gt,
+                ast.GtE,
+                ast.And,
+                ast.Or,
+                ast.Not,
+                ast.Is,
+                ast.IsNot,
+                ast.In,
+                ast.NotIn,
+            }
+
+            # Validate AST nodes are safe
+            for node in ast.walk(parsed):
+                if type(node) not in safe_nodes:
+                    raise ValueError(
+                        f"Unsafe operation '{type(node).__name__}' not allowed in transformations"
+                    )
+
+                # Restrict function calls to whitelisted functions
+                if isinstance(node, ast.Call):
+                    if isinstance(node.func, ast.Name):
+                        # Only allow specific pandas operations
+                        allowed_functions = {
+                            "len",
+                            "sum",
+                            "mean",
+                            "std",
+                            "min",
+                            "max",
+                            "abs",
+                            "round",
+                            "int",
+                            "float",
+                            "str",
+                        }
+                        if node.func.id not in allowed_functions:
+                            raise ValueError(
+                                f"Function '{node.func.id}' not allowed in transformations"
+                            )
+                    elif isinstance(node.func, ast.Attribute):
+                        # Allow pandas DataFrame/Series methods
+                        allowed_methods = {
+                            "copy",
+                            "fillna",
+                            "dropna",
+                            "drop_duplicates",
+                            "groupby",
+                            "agg",
+                            "apply",
+                            "map",
+                            "replace",
+                            "astype",
+                            "reset_index",
+                            "sort_values",
+                            "head",
+                            "tail",
+                            "sample",
+                            "describe",
+                        }
+                        if (
+                            hasattr(node.func, "attr")
+                            and node.func.attr not in allowed_methods
+                        ):
+                            raise ValueError(
+                                f"Method '{node.func.attr}' not allowed in transformations"
+                            )
+
+            # Create restricted execution environment
+            safe_globals = {
+                "__builtins__": {
+                    "len": len,
+                    "sum": sum,
+                    "min": min,
+                    "max": max,
+                    "abs": abs,
+                    "round": round,
+                    "int": int,
+                    "float": float,
+                    "str": str,
+                },
                 "pd": pd,
+            }
+
+            local_vars = {
+                "df": input_data.copy(),  # Work on a copy
                 "parameters": parameters or {},
                 **transformation.parameters,
             }
 
-            # Execute transformation code
-            exec(transformation.transformation_code, {"__builtins__": {}}, local_vars)
+            # Execute transformation code with restrictions
+            exec(compile(parsed, "<transformation>", "exec"), safe_globals, local_vars)
 
             # Get result DataFrame
             if "result" not in local_vars:
@@ -807,6 +938,7 @@ class FeatureStore:
 
             # Clean up temporary table
             from sqlalchemy import text
+
             with self.engine.connect() as conn:
                 conn.execute(text(f"DROP TABLE IF EXISTS {temp_table_name}"))
                 conn.commit()

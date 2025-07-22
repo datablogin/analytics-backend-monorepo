@@ -19,8 +19,14 @@ from libs.ml_models import (
 
 router = APIRouter(prefix="/feature-store", tags=["Feature Store"])
 
-# Initialize feature store
-feature_store = FeatureStore(FeatureStoreConfig())
+
+async def get_feature_store() -> FeatureStore:
+    """Dependency to get feature store instance."""
+    # In production, this would be configured via dependency injection
+    # For now, create a new instance per request (can be optimized with caching)
+    feature_store = FeatureStore(FeatureStoreConfig())
+    await feature_store.initialize_tables()
+    return feature_store
 
 
 class FeatureRequest(BaseModel):
@@ -74,10 +80,11 @@ async def create_feature(
     request: Request,
     feature_definition: FeatureDefinition,
     current_user=Depends(get_current_user),
+    feature_store: FeatureStore = Depends(get_feature_store),
 ) -> StandardResponse[FeatureDefinition]:
     """Create a new feature definition."""
     try:
-        feature_id = feature_store.create_feature(feature_definition)
+        feature_id = await feature_store.create_feature(feature_definition)
 
         return StandardResponse(
             success=True,
@@ -105,10 +112,11 @@ async def get_feature(
     request: Request,
     feature_name: str,
     current_user=Depends(get_current_user),
+    feature_store: FeatureStore = Depends(get_feature_store),
 ) -> StandardResponse[FeatureDefinition]:
     """Get feature definition by name."""
     try:
-        feature_def = feature_store.get_feature_definition(feature_name)
+        feature_def = await feature_store.get_feature_definition(feature_name)
 
         if not feature_def:
             raise HTTPException(
@@ -143,6 +151,7 @@ async def list_features(
     owner: str | None = Query(None),
     tags: list[str] | None = Query(None),
     current_user=Depends(get_current_user),
+    feature_store: FeatureStore = Depends(get_feature_store),
 ) -> StandardResponse[list[FeatureDefinition]]:
     """List feature definitions with optional filtering."""
     try:
@@ -176,10 +185,11 @@ async def write_features(
     request: Request,
     feature_values: list[FeatureValue],
     current_user=Depends(get_current_user),
+    feature_store: FeatureStore = Depends(get_feature_store),
 ) -> StandardResponse[dict]:
     """Write feature values to the store."""
     try:
-        written_count = feature_store.write_features(feature_values)
+        written_count = await feature_store.write_features(feature_values)
 
         return StandardResponse(
             success=True,
@@ -207,10 +217,11 @@ async def get_online_features(
     request: Request,
     feature_request: OnlineFeatureRequest,
     current_user=Depends(get_current_user),
+    feature_store: FeatureStore = Depends(get_feature_store),
 ) -> StandardResponse[dict]:
     """Get features for real-time inference with low latency."""
     try:
-        result_df = feature_store.get_online_features(
+        result_df = await feature_store.get_online_features(
             feature_names=feature_request.feature_names,
             entity_ids=feature_request.entity_ids,
             timeout_ms=feature_request.timeout_ms,
@@ -250,10 +261,11 @@ async def get_historical_features(
     request: Request,
     feature_request: HistoricalFeatureRequest,
     current_user=Depends(get_current_user),
+    feature_store: FeatureStore = Depends(get_feature_store),
 ) -> StandardResponse[dict]:
     """Get historical features with point-in-time correctness."""
     try:
-        result_df = feature_store.get_historical_features(
+        result_df = await feature_store.get_historical_features(
             feature_names=feature_request.feature_names,
             entity_timestamps=feature_request.entity_timestamps,
             point_in_time_accuracy=feature_request.point_in_time_accuracy,
@@ -294,6 +306,7 @@ async def register_transformation(
     request: Request,
     transformation: FeatureTransformation,
     current_user=Depends(get_current_user),
+    feature_store: FeatureStore = Depends(get_feature_store),
 ) -> StandardResponse[dict]:
     """Register a feature transformation."""
     try:
@@ -327,6 +340,7 @@ async def execute_transformation(
     input_data: dict[str, Any],
     parameters: dict[str, Any] | None = None,
     current_user=Depends(get_current_user),
+    feature_store: FeatureStore = Depends(get_feature_store),
 ) -> StandardResponse[dict]:
     """Execute a feature transformation."""
     try:
@@ -375,6 +389,7 @@ async def create_feature_set(
     request: Request,
     feature_set: FeatureSet,
     current_user=Depends(get_current_user),
+    feature_store: FeatureStore = Depends(get_feature_store),
 ) -> StandardResponse[dict]:
     """Create a feature set."""
     try:
@@ -403,7 +418,9 @@ async def create_feature_set(
     summary="Get feature store statistics",
 )
 async def get_feature_store_stats(
-    request: Request, current_user=Depends(get_current_user)
+    request: Request,
+    current_user=Depends(get_current_user),
+    feature_store: FeatureStore = Depends(get_feature_store),
 ) -> StandardResponse[dict]:
     """Get feature store statistics."""
     try:
@@ -432,7 +449,9 @@ async def get_feature_store_stats(
     summary="Get feature discovery information",
 )
 async def get_feature_discovery(
-    request: Request, current_user=Depends(get_current_user)
+    request: Request,
+    current_user=Depends(get_current_user),
+    feature_store: FeatureStore = Depends(get_feature_store),
 ) -> StandardResponse[dict]:
     """Get feature discovery portal information."""
     try:
@@ -464,6 +483,7 @@ async def get_feature_lineage(
     request: Request,
     feature_name: str,
     current_user=Depends(get_current_user),
+    feature_store: FeatureStore = Depends(get_feature_store),
 ) -> StandardResponse[dict]:
     """Get lineage information for a feature."""
     try:
@@ -496,6 +516,7 @@ async def detect_feature_drift(
     feature_name: str,
     drift_request: DriftDetectionRequest,
     current_user=Depends(get_current_user),
+    feature_store: FeatureStore = Depends(get_feature_store),
 ) -> StandardResponse[dict]:
     """Detect drift in feature values."""
     try:
@@ -537,6 +558,7 @@ async def batch_compute_features(
     request: Request,
     batch_request: BatchComputeRequest,
     current_user=Depends(get_current_user),
+    feature_store: FeatureStore = Depends(get_feature_store),
 ) -> StandardResponse[dict]:
     """Batch compute features using a transformation."""
     try:
@@ -587,6 +609,7 @@ async def cleanup_old_features(
     request: Request,
     retention_days: int = Query(90, ge=1, le=365),
     current_user=Depends(get_current_user),
+    feature_store: FeatureStore = Depends(get_feature_store),
 ) -> StandardResponse[dict]:
     """Clean up old feature values."""
     try:
@@ -610,4 +633,3 @@ async def cleanup_old_features(
         raise HTTPException(
             status_code=500, detail=f"Failed to cleanup old features: {str(e)}"
         )
-
