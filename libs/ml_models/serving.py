@@ -223,8 +223,8 @@ class ModelContainer:
     def _estimate_model_size(self) -> float:
         """Estimate model size in MB."""
         try:
-            import sys
             import pickle
+            import sys
 
             # Try to get size using pickle serialization (rough estimate)
             try:
@@ -746,7 +746,7 @@ class ModelServer:
 
                 # Check for problematic values
                 if value is not None and not isinstance(
-                    value, (str, int, float, bool, list)
+                    value, str | int | float | bool | list
                 ):
                     logger.warning(
                         f"Input value for key '{key}' may not be serializable: {type(value)}"
@@ -953,7 +953,8 @@ class ModelServer:
                     # Simple health check - try to make a dummy prediction
                     if model_container.input_example is not None:
                         # Use input example for health check
-                        test_input = model_container.input_example
+                        # test_input = model_container.input_example
+                        pass  # Placeholder for health check implementation
                     else:
                         # Skip health check if no input example
                         continue

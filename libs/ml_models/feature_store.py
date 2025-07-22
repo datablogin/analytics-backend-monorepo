@@ -532,7 +532,7 @@ class FeatureStore:
             raise ValueError(
                 f"Feature '{feature_value.feature_name}' expected int, got {type(value)}"
             )
-        elif expected_type == "float" and not isinstance(value, (int, float)):
+        elif expected_type == "float" and not isinstance(value, int | float):
             raise ValueError(
                 f"Feature '{feature_value.feature_name}' expected float, got {type(value)}"
             )

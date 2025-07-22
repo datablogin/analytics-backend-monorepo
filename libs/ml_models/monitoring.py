@@ -947,12 +947,12 @@ class ModelMonitor:
                 }
 
             from evidently import ColumnMapping
-            from evidently.report import Report
             from evidently.metrics import (
                 DataDriftTable,
                 DatasetDriftMetric,
                 DatasetSummaryMetric,
             )
+            from evidently.report import Report
 
             reference_data = self.reference_data[model_name]
 

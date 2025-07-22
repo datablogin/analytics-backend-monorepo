@@ -2,10 +2,9 @@
 
 import asyncio
 from datetime import datetime, timezone
-from typing import Any
 
 import structlog
-from fastapi import Depends, FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
@@ -19,7 +18,6 @@ from libs.ml_models.config import BaseConfig
 from libs.observability import (
     ObservabilityConfig,
     configure_observability,
-    request_middleware,
 )
 
 logger = structlog.get_logger(__name__)
@@ -324,7 +322,7 @@ class MLInferenceApp:
                         successful_requests += 1
                         responses.append(result)
 
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 logger.error("Batch processing timed out")
                 raise HTTPException(
                     status_code=408, detail="Batch processing timed out"

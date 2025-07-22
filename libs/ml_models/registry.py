@@ -224,8 +224,8 @@ class ModelRegistry:
 
         try:
             # Try to import MLflow's signature validation
-            from mlflow.types import Schema
             from mlflow.models.signature import ModelSignature
+            from mlflow.types import Schema
 
             if not isinstance(model_signature, ModelSignature):
                 raise ValueError(
@@ -243,11 +243,11 @@ class ModelRegistry:
             # If input example provided, validate compatibility
             if input_example is not None:
                 try:
-                    import pandas as pd
                     import numpy as np
+                    import pandas as pd
 
                     # Convert input example to pandas DataFrame for validation
-                    if isinstance(input_example, (dict, list)):
+                    if isinstance(input_example, dict | list):
                         example_df = pd.DataFrame(
                             input_example
                             if isinstance(input_example, list)

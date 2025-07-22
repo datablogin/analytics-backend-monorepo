@@ -489,7 +489,7 @@ class TestIntegration:
             )
             exp_id = tracker.create_experiment(exp_metadata)
 
-            run_metadata = RunMetadata(
+            _run_metadata = RunMetadata(
                 experiment_id=exp_id,
                 run_name="training_run",
                 parameters={"n_estimators": 10, "random_state": 42},
