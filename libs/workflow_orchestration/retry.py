@@ -351,7 +351,10 @@ class RetryExecutor:
                     "Task executed successfully", task_name=task_name, attempt=attempt
                 )
 
-                return result, attempt - 1  # Return result and retry count (attempts - 1)
+                return (
+                    result,
+                    attempt - 1,
+                )  # Return result and retry count (attempts - 1)
 
             except Exception as error:
                 last_error = error
@@ -405,7 +408,13 @@ class RetryExecutor:
         # Include retry count in the exception for tracking
         class TaskExecutionError(Exception):
             """Custom exception with retry count tracking."""
-            def __init__(self, message: str, retry_count: int, original_error: Exception | None = None):
+
+            def __init__(
+                self,
+                message: str,
+                retry_count: int,
+                original_error: Exception | None = None,
+            ):
                 super().__init__(message)
                 self.retry_count = retry_count
                 self.original_error = original_error
@@ -413,7 +422,7 @@ class RetryExecutor:
         raise TaskExecutionError(
             f"Task '{task_name}' failed after {attempt - 1} retries ({attempt} attempts)",
             retry_count=attempt - 1,
-            original_error=last_error
+            original_error=last_error,
         )
 
 

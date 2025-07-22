@@ -195,9 +195,7 @@ class AlertInstance(BaseModel):
     acknowledged_by: str | None = Field(
         default=None, description="User who acknowledged"
     )
-    resolution_notes: str | None = Field(
-        default=None, description="Resolution notes"
-    )
+    resolution_notes: str | None = Field(default=None, description="Resolution notes")
 
 
 class WorkflowMonitor:
@@ -237,9 +235,7 @@ class WorkflowMonitor:
         if not force_refresh and cache_key in self.metrics_cache:
             cached_metrics = self.metrics_cache[cache_key]
             # Use cache if less than 5 minutes old
-            if (
-                datetime.now(UTC) - cached_metrics.last_updated
-            ).total_seconds() < 300:
+            if (datetime.now(UTC) - cached_metrics.last_updated).total_seconds() < 300:
                 return cached_metrics
 
         # Calculate metrics
@@ -766,9 +762,7 @@ class WorkflowMonitor:
             return True
         return False
 
-    def resolve_alert(
-        self, alert_id: str, resolution_notes: str | None = None
-    ) -> bool:
+    def resolve_alert(self, alert_id: str, resolution_notes: str | None = None) -> bool:
         """Resolve an active alert."""
         if alert_id in self.active_alerts:
             alert = self.active_alerts[alert_id]

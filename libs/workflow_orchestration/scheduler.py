@@ -368,12 +368,8 @@ class TriggerConfig(BaseModel):
     )
 
     # Event trigger specific
-    event_type: str | None = Field(
-        default=None, description="Event type to listen for"
-    )
-    event_pattern: str | None = Field(
-        default=None, description="Event pattern regex"
-    )
+    event_type: str | None = Field(default=None, description="Event type to listen for")
+    event_pattern: str | None = Field(default=None, description="Event pattern regex")
     event_conditions: dict[str, Any] | None = Field(
         default=None, description="Event conditions"
     )
@@ -406,9 +402,7 @@ class TriggerConfig(BaseModel):
 
     @field_validator("interval_seconds")
     @classmethod
-    def validate_interval(
-        cls, v: int | None, info: ValidationInfo
-    ) -> int | None:
+    def validate_interval(cls, v: int | None, info: ValidationInfo) -> int | None:
         """Validate interval for interval trigger."""
         if info.data.get("trigger_type") == TriggerType.INTERVAL:
             if not v or v <= 0:
@@ -421,9 +415,7 @@ class TriggerConfig(BaseModel):
 
     @field_validator("event_type")
     @classmethod
-    def validate_event_type(
-        cls, v: str | None, info: ValidationInfo
-    ) -> str | None:
+    def validate_event_type(cls, v: str | None, info: ValidationInfo) -> str | None:
         """Validate event type for event trigger."""
         if info.data.get("trigger_type") == TriggerType.EVENT:
             if not v:
@@ -432,9 +424,7 @@ class TriggerConfig(BaseModel):
 
     @field_validator("webhook_path")
     @classmethod
-    def validate_webhook_path(
-        cls, v: str | None, info: ValidationInfo
-    ) -> str | None:
+    def validate_webhook_path(cls, v: str | None, info: ValidationInfo) -> str | None:
         """Validate webhook path for webhook trigger."""
         if info.data.get("trigger_type") == TriggerType.WEBHOOK:
             if not v:
@@ -527,9 +517,7 @@ class WorkflowScheduler:
         """Get trigger by name."""
         return self.triggers.get(trigger_name)
 
-    def list_triggers(
-        self, workflow_name: str | None = None
-    ) -> list[dict[str, Any]]:
+    def list_triggers(self, workflow_name: str | None = None) -> list[dict[str, Any]]:
         """List all triggers, optionally filtered by workflow."""
         triggers = list(self.triggers.values())
         if workflow_name:

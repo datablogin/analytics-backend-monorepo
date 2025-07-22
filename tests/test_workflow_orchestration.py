@@ -300,7 +300,9 @@ class TestRetryMechanism:
                 raise ConnectionError("Connection failed")
             return "success"
 
-        result, retry_count = await executor.execute_with_retry(mock_function, task_name="test_task")
+        result, retry_count = await executor.execute_with_retry(
+            mock_function, task_name="test_task"
+        )
 
         assert result == "success"
         assert retry_count == 2  # Failed twice, succeeded on third attempt
@@ -495,9 +497,7 @@ class TestMonitoring:
                 "execution_id": f"exec{i}",
                 "workflow_name": "test_workflow",
                 "status": "failed",
-                "start_time": (
-                    datetime.now(UTC) - timedelta(minutes=10)
-                ).isoformat(),
+                "start_time": (datetime.now(UTC) - timedelta(minutes=10)).isoformat(),
                 "error_message": "Connection error",
             }
             for i in range(5)  # 5 failures

@@ -17,9 +17,7 @@ class WorkflowVersion(BaseModel):
     definition: dict[str, Any] = Field(description="Workflow definition")
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     created_by: str = Field(description="User who created this version")
-    changelog: str | None = Field(
-        default=None, description="Changes in this version"
-    )
+    changelog: str | None = Field(default=None, description="Changes in this version")
     tags: list[str] = Field(default_factory=list, description="Version tags")
 
     # Status
@@ -56,9 +54,7 @@ class ExecutionArtifact(BaseModel):
     # Storage information
     storage_path: str = Field(description="Path where artifact is stored")
     storage_type: str = Field(default="filesystem", description="Storage backend type")
-    size_bytes: int | None = Field(
-        default=None, description="Artifact size in bytes"
-    )
+    size_bytes: int | None = Field(default=None, description="Artifact size in bytes")
     mime_type: str | None = Field(default=None, description="MIME type")
 
     # Metadata
@@ -205,9 +201,7 @@ class WorkflowStorage:
 
         return version_key
 
-    def get_workflow_version(
-        self, name: str, version: str
-    ) -> WorkflowVersion | None:
+    def get_workflow_version(self, name: str, version: str) -> WorkflowVersion | None:
         """Get specific workflow version."""
         version_key = f"{name}:{version}"
         return self.workflow_versions.get(version_key)

@@ -91,7 +91,9 @@ class ExecutionContext(BaseModel):
             status=result.status,
         )
 
-    def get_upstream_results(self, upstream_tasks: list[str]) -> dict[str, dict[str, Any]]:
+    def get_upstream_results(
+        self, upstream_tasks: list[str]
+    ) -> dict[str, dict[str, Any]]:
         """Get results from specified upstream tasks."""
         return {
             task_name: result.model_dump()
@@ -125,9 +127,7 @@ class WorkflowExecution(BaseModel):
     start_time: datetime | None = Field(
         default=None, description="When execution started"
     )
-    end_time: datetime | None = Field(
-        default=None, description="When execution ended"
-    )
+    end_time: datetime | None = Field(default=None, description="When execution ended")
     duration_seconds: float | None = Field(
         default=None, description="Execution duration"
     )
@@ -185,9 +185,7 @@ class WorkflowExecution(BaseModel):
         self.start_time = datetime.now(UTC)
         self.status = WorkflowStatus.RUNNING
 
-    def mark_completed(
-        self, success: bool, error_message: str | None = None
-    ) -> None:
+    def mark_completed(self, success: bool, error_message: str | None = None) -> None:
         """Mark execution as completed."""
         self.end_time = datetime.now(UTC)
         self.calculate_duration()
