@@ -165,7 +165,7 @@ class TestModelRegistry:
 
         config = ModelRegistryConfig(
             mlflow_tracking_uri=f"sqlite:///{temp_mlflow_path}/mlflow.db",
-            require_input_example=False  # Disable for test
+            require_input_example=False,  # Disable for test
         )
         registry = ModelRegistry(config)
 
@@ -349,7 +349,6 @@ class TestModelMonitor:
         assert len(monitor.reference_data["test_model"]) == len(features_train)
 
 
-
 class TestFeatureStore:
     """Test feature store functionality."""
 
@@ -493,7 +492,7 @@ class TestIntegration:
         # 3. Register model
         reg_config = ModelRegistryConfig(
             mlflow_tracking_uri=f"sqlite:///{temp_mlflow_path}/mlflow.db",
-            require_input_example=False  # Disable for test
+            require_input_example=False,  # Disable for test
         )
 
         with (
@@ -502,7 +501,9 @@ class TestIntegration:
             patch("mlflow.log_param"),
             patch("mlflow.log_metric"),
             patch("mlflow.set_tag"),
-            patch.object(ModelRegistry, "_ensure_experiment_exists", return_value="test_exp_123"),
+            patch.object(
+                ModelRegistry, "_ensure_experiment_exists", return_value="test_exp_123"
+            ),
             patch.object(ModelRegistry, "_register_model_version") as mock_register,
         ):
             # Properly mock MLflow run
@@ -603,7 +604,7 @@ class TestErrorHandling:
         """Test error handling for invalid model framework."""
         config = ModelRegistryConfig(
             mlflow_tracking_uri=f"sqlite:///{temp_mlflow_path}/mlflow.db",
-            require_input_example=False  # Disable for test
+            require_input_example=False,  # Disable for test
         )
         registry = ModelRegistry(config)
 
@@ -624,7 +625,9 @@ class TestErrorHandling:
             patch("mlflow.log_param"),
             patch("mlflow.log_metric"),
             patch("mlflow.set_tag"),
-            patch.object(registry, "_ensure_experiment_exists", return_value="test_exp_123"),
+            patch.object(
+                registry, "_ensure_experiment_exists", return_value="test_exp_123"
+            ),
             patch.object(registry, "_register_model_version") as mock_register,
         ):
             # Properly mock MLflow run
@@ -655,7 +658,9 @@ class TestErrorHandling:
 
         # For this test, let's check that it handles missing features gracefully
         # by returning empty result instead of raising an error
-        assert len(df) == 0 or (len(df) == 1 and pd.isna(df.loc[0, "non_existent_feature"]))
+        assert len(df) == 0 or (
+            len(df) == 1 and pd.isna(df.loc[0, "non_existent_feature"])
+        )
 
     def test_monitor_insufficient_samples(self, sample_model_data):
         """Test drift detection with insufficient samples."""
