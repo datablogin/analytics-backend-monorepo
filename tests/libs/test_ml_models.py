@@ -53,32 +53,32 @@ def temp_mlflow_path():
 @pytest.fixture
 def sample_model_data():
     """Generate sample model training data."""
-    X, y = make_classification(n_samples=100, n_features=10, random_state=42)
-    X_train, X_test, y_train, y_test = train_test_split(
-        X, y, test_size=0.2, random_state=42
+    features, target = make_classification(n_samples=100, n_features=10, random_state=42)
+    features_train, features_test, target_train, target_test = train_test_split(
+        features, target, test_size=0.2, random_state=42
     )
 
     # Convert to DataFrame for easier handling
-    feature_names = [f"feature_{i}" for i in range(X.shape[1])]
-    X_train_df = pd.DataFrame(X_train, columns=feature_names)
-    X_test_df = pd.DataFrame(X_test, columns=feature_names)
+    feature_names = [f"feature_{i}" for i in range(features.shape[1])]
+    features_train_df = pd.DataFrame(features_train, columns=feature_names)
+    features_test_df = pd.DataFrame(features_test, columns=feature_names)
 
-    return X_train_df, X_test_df, y_train, y_test, feature_names
+    return features_train_df, features_test_df, target_train, target_test, feature_names
 
 
 @pytest.fixture
 def sample_regression_data():
     """Generate sample regression data."""
-    X, y = make_regression(n_samples=100, n_features=5, noise=0.1, random_state=42)
-    X_train, X_test, y_train, y_test = train_test_split(
-        X, y, test_size=0.2, random_state=42
+    features, target = make_regression(n_samples=100, n_features=5, noise=0.1, random_state=42)
+    features_train, features_test, target_train, target_test = train_test_split(
+        features, target, test_size=0.2, random_state=42
     )
 
-    feature_names = [f"reg_feature_{i}" for i in range(X.shape[1])]
-    X_train_df = pd.DataFrame(X_train, columns=feature_names)
-    X_test_df = pd.DataFrame(X_test, columns=feature_names)
+    feature_names = [f"reg_feature_{i}" for i in range(features.shape[1])]
+    features_train_df = pd.DataFrame(features_train, columns=feature_names)
+    features_test_df = pd.DataFrame(features_test, columns=feature_names)
 
-    return X_train_df, X_test_df, y_train, y_test, feature_names
+    return features_train_df, features_test_df, target_train, target_test, feature_names
 
 
 class TestModuleStructure:
@@ -146,11 +146,11 @@ class TestModelRegistry:
         self, mock_log_model, mock_start_run, temp_mlflow_path, sample_model_data
     ):
         """Test model registration process."""
-        X_train, X_test, y_train, y_test, feature_names = sample_model_data
+        features_train, features_test, target_train, target_test, feature_names = sample_model_data
 
         # Train a simple model
         model = RandomForestClassifier(n_estimators=10, random_state=42)
-        model.fit(X_train, y_train)
+        model.fit(features_train, target_train)
 
         # Mock MLflow run
         mock_run = MagicMock()
@@ -329,28 +329,28 @@ class TestModelMonitor:
 
     def test_set_reference_data(self, sample_model_data):
         """Test setting reference data."""
-        X_train, _, _, _, _ = sample_model_data
+        features_train, _, _, _, _ = sample_model_data
 
         monitor = ModelMonitor()
-        monitor.set_reference_data("test_model", X_train)
+        monitor.set_reference_data("test_model", features_train)
 
         assert "test_model" in monitor.reference_data
-        assert len(monitor.reference_data["test_model"]) == len(X_train)
+        assert len(monitor.reference_data["test_model"]) == len(features_train)
 
     def test_data_drift_detection(self, sample_model_data):
         """Test data drift detection."""
-        X_train, X_test, _, _, _ = sample_model_data
+        features_train, features_test, _, _, _ = sample_model_data
 
         monitor = ModelMonitor()
-        monitor.set_reference_data("test_model", X_train)
+        monitor.set_reference_data("test_model", features_train)
 
         # Add some drift to test data
-        X_test_drift = X_test.copy()
-        X_test_drift.iloc[:, 0] = (
-            X_test_drift.iloc[:, 0] + 2.0
+        features_test_drift = features_test.copy()
+        features_test_drift.iloc[:, 0] = (
+            features_test_drift.iloc[:, 0] + 2.0
         )  # Add drift to first feature
 
-        drift_results = monitor.detect_data_drift("test_model", X_test_drift)
+        drift_results = monitor.detect_data_drift("test_model", features_test_drift)
 
         assert len(drift_results) > 0
         # Should detect drift in first feature
@@ -464,12 +464,12 @@ class TestIntegration:
         self, temp_mlflow_path, sample_model_data
     ):
         """Test complete model lifecycle from training to serving."""
-        X_train, X_test, y_train, y_test, feature_names = sample_model_data
+        features_train, features_test, target_train, target_test, feature_names = sample_model_data
 
         # 1. Train model
         model = RandomForestClassifier(n_estimators=10, random_state=42)
-        model.fit(X_train, y_train)
-        accuracy = model.score(X_test, y_test)
+        model.fit(features_train, target_train)
+        accuracy = model.score(features_test, target_test)
 
         # 2. Create experiment and track training
         exp_config = ExperimentConfig(
@@ -523,7 +523,7 @@ class TestIntegration:
 
         # 4. Test monitoring setup
         monitor = ModelMonitor()
-        monitor.set_reference_data("integration_test_model", X_train)
+        monitor.set_reference_data("integration_test_model", features_train)
         monitor.set_baseline_performance(
             "integration_test_model", {"accuracy": accuracy}
         )
@@ -534,7 +534,7 @@ class TestIntegration:
 
     def test_feature_store_to_model_pipeline(self, temp_db_path, sample_model_data):
         """Test pipeline from feature store to model training."""
-        X_train, X_test, y_train, y_test, feature_names = sample_model_data
+        features_train, features_test, target_train, target_test, feature_names = sample_model_data
 
         # 1. Setup feature store
         config = FeatureStoreConfig(
@@ -554,7 +554,7 @@ class TestIntegration:
 
         # 3. Write training features
         feature_values = []
-        for idx, row in X_train.iterrows():
+        for idx, row in features_train.iterrows():
             entity_id = f"entity_{idx}"
             for feature_name in feature_names:
                 feature_values.append(
@@ -569,7 +569,7 @@ class TestIntegration:
         assert written_count == len(feature_values)
 
         # 4. Read features for training
-        entity_ids = [f"entity_{i}" for i in X_train.index[:5]]  # Get first 5
+        entity_ids = [f"entity_{i}" for i in features_train.index[:5]]  # Get first 5
         df = store.read_features(feature_names, entity_ids)
 
         assert len(df) == 5
@@ -577,7 +577,7 @@ class TestIntegration:
 
         # 5. Train model with features from store
         training_features = df[feature_names].values
-        training_labels = y_train[:5]  # Corresponding labels
+        training_labels = target_train[:5]  # Corresponding labels
 
         model = RandomForestClassifier(n_estimators=10, random_state=42)
         model.fit(training_features, training_labels)
@@ -633,13 +633,13 @@ class TestErrorHandling:
 
     def test_monitor_insufficient_samples(self, sample_model_data):
         """Test drift detection with insufficient samples."""
-        X_train, _, _, _, _ = sample_model_data
+        features_train, _, _, _, _ = sample_model_data
 
         monitor = ModelMonitor(ModelMonitoringConfig(min_samples_for_drift=1000))
-        monitor.set_reference_data("test_model", X_train)  # Only 80 samples
+        monitor.set_reference_data("test_model", features_train)  # Only 80 samples
 
         # Create small current dataset
-        small_data = X_train.head(10)
+        small_data = features_train.head(10)
 
         drift_results = monitor.detect_data_drift("test_model", small_data)
 

@@ -825,12 +825,12 @@ class ModelMonitor:
 
             for column in data.select_dtypes(include=[np.number]).columns:
                 try:
-                    Q1 = data[column].quantile(0.25)
-                    Q3 = data[column].quantile(0.75)
-                    IQR = Q3 - Q1
+                    q1 = data[column].quantile(0.25)
+                    q3 = data[column].quantile(0.75)
+                    iqr = q3 - q1
 
-                    lower_bound = Q1 - 1.5 * IQR
-                    upper_bound = Q3 + 1.5 * IQR
+                    lower_bound = q1 - 1.5 * iqr
+                    upper_bound = q3 + 1.5 * iqr
 
                     outliers = (
                         (data[column] < lower_bound) | (data[column] > upper_bound)
@@ -844,8 +844,8 @@ class ModelMonitor:
                         "std": float(data[column].std()),
                         "min": float(data[column].min()),
                         "max": float(data[column].max()),
-                        "q25": float(Q1),
-                        "q75": float(Q3),
+                        "q25": float(q1),
+                        "q75": float(q3),
                     }
 
                 except Exception:
