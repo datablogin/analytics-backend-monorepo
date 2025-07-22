@@ -400,24 +400,67 @@ class ModelMonitor:
     def _kolmogorov_smirnov_test(
         self, reference_values: pd.Series, current_values: pd.Series
     ) -> tuple[float, float]:
-        """Perform Kolmogorov-Smirnov test for distribution comparison."""
+        """Perform Kolmogorov-Smirnov test for distribution comparison with validation."""
         try:
+            # Input validation
+            if reference_values is None or current_values is None:
+                logger.error("Null input data for KS test")
+                return 0.0, 1.0
+
+            # Check for empty series
+            if len(reference_values) == 0 or len(current_values) == 0:
+                logger.error("Empty input data for KS test")
+                return 0.0, 1.0
+
+            # Remove null values and validate remaining data
+            ref_clean = reference_values.dropna()
+            cur_clean = current_values.dropna()
+
+            if len(ref_clean) == 0 or len(cur_clean) == 0:
+                logger.warning(
+                    "All values are null after cleaning - cannot perform KS test"
+                )
+                return 0.0, 1.0
+
+            # Check minimum sample size for statistical validity
+            min_samples = 5
+            if len(ref_clean) < min_samples or len(cur_clean) < min_samples:
+                logger.warning(
+                    f"Insufficient samples for KS test: ref={len(ref_clean)}, cur={len(cur_clean)}, min={min_samples}"
+                )
+                return 0.0, 1.0
+
             # Handle categorical data
-            if reference_values.dtype == "object" or current_values.dtype == "object":
-                # Use chi-square test for categorical data
-                ref_counts = reference_values.value_counts()
-                cur_counts = current_values.value_counts()
+            if ref_clean.dtype == "object" or cur_clean.dtype == "object":
+                return self._chi_square_test(ref_clean, cur_clean)
 
-                # Align categories
-                all_categories = set(ref_counts.index) | set(cur_counts.index)
-                ref_aligned = [ref_counts.get(cat, 0) for cat in all_categories]
-                cur_aligned = [cur_counts.get(cat, 0) for cat in all_categories]
+            # Numerical data validation
+            # Check for infinite values
+            if np.isinf(ref_clean).any() or np.isinf(cur_clean).any():
+                logger.warning("Infinite values detected - removing for KS test")
+                ref_clean = ref_clean[np.isfinite(ref_clean)]
+                cur_clean = cur_clean[np.isfinite(cur_clean)]
 
-                statistic, p_value = stats.chisquare(cur_aligned, ref_aligned)
-                return float(statistic), float(p_value)
+                if len(ref_clean) < min_samples or len(cur_clean) < min_samples:
+                    logger.error("Insufficient finite samples after cleaning")
+                    return 0.0, 1.0
 
-            # Numerical data - use KS test
-            statistic, p_value = stats.ks_2samp(reference_values, current_values)
+            # Check for constant values (no variation)
+            if ref_clean.nunique() == 1 and cur_clean.nunique() == 1:
+                # Both series are constant - compare the constants
+                if ref_clean.iloc[0] == cur_clean.iloc[0]:
+                    return 0.0, 1.0  # No difference
+                else:
+                    return 1.0, 0.0  # Maximum difference
+
+            # Perform KS test
+            statistic, p_value = stats.ks_2samp(ref_clean, cur_clean)
+
+            # Validate results
+            if np.isnan(statistic) or np.isnan(p_value):
+                logger.error("KS test returned NaN values")
+                return 0.0, 1.0
+
             return float(statistic), float(p_value)
 
         except Exception as error:
@@ -425,55 +468,205 @@ class ModelMonitor:
             # Return neutral values if test fails
             return 0.0, 1.0
 
+    def _chi_square_test(
+        self, reference_values: pd.Series, current_values: pd.Series
+    ) -> tuple[float, float]:
+        """Perform chi-square test for categorical data."""
+        try:
+            ref_counts = reference_values.value_counts()
+            cur_counts = current_values.value_counts()
+
+            # Align categories
+            all_categories = set(ref_counts.index) | set(cur_counts.index)
+            ref_aligned = [ref_counts.get(cat, 0) for cat in all_categories]
+            cur_aligned = [cur_counts.get(cat, 0) for cat in all_categories]
+
+            # Validate counts
+            if sum(ref_aligned) == 0 or sum(cur_aligned) == 0:
+                logger.error("Zero total counts in chi-square test")
+                return 0.0, 1.0
+
+            # Chi-square test requires expected frequencies >= 5
+            # Use approximation if this condition is violated
+            min_expected = min(min(ref_aligned), min(cur_aligned))
+            if min_expected < 5:
+                logger.warning(
+                    f"Low expected frequencies in chi-square test (min={min_expected}) - results may be unreliable"
+                )
+
+            statistic, p_value = stats.chisquare(cur_aligned, ref_aligned)
+
+            # Validate results
+            if np.isnan(statistic) or np.isnan(p_value):
+                logger.error("Chi-square test returned NaN values")
+                return 0.0, 1.0
+
+            return float(statistic), float(p_value)
+
+        except Exception as error:
+            logger.error("Chi-square test failed", error=str(error))
+            return 0.0, 1.0
+
     def _population_stability_index(
         self, reference_values: pd.Series, current_values: pd.Series
     ) -> float:
-        """Calculate Population Stability Index (PSI)."""
+        """Calculate Population Stability Index (PSI) with validation."""
         try:
-            # Handle categorical data
-            if reference_values.dtype == "object":
-                ref_counts = reference_values.value_counts(normalize=True)
-                cur_counts = current_values.value_counts(normalize=True)
-
-                # Align categories
-                all_categories = set(ref_counts.index) | set(cur_counts.index)
-
-                psi = 0.0
-                for category in all_categories:
-                    ref_pct = ref_counts.get(
-                        category, 0.001
-                    )  # Small value to avoid log(0)
-                    cur_pct = cur_counts.get(category, 0.001)
-                    psi += (cur_pct - ref_pct) * np.log(cur_pct / ref_pct)
-
-                return abs(psi)
-
-            # Numerical data - create bins
-            try:
-                # Create equal-width bins based on reference data
-                bins = np.histogram_bin_edges(reference_values, bins=10)
-                ref_hist, _ = np.histogram(reference_values, bins=bins)
-                cur_hist, _ = np.histogram(current_values, bins=bins)
-
-                # Normalize to probabilities
-                ref_probs = ref_hist / ref_hist.sum()
-                cur_probs = cur_hist / cur_hist.sum()
-
-                # Add small constant to avoid log(0)
-                ref_probs = np.where(ref_probs == 0, 0.001, ref_probs)
-                cur_probs = np.where(cur_probs == 0, 0.001, cur_probs)
-
-                # Calculate PSI
-                psi = np.sum((cur_probs - ref_probs) * np.log(cur_probs / ref_probs))
-
-                return abs(psi)
-
-            except Exception:
-                # Fallback to simple comparison
+            # Input validation
+            if reference_values is None or current_values is None:
+                logger.error("Null input data for PSI calculation")
                 return 0.0
+
+            # Check for empty series
+            if len(reference_values) == 0 or len(current_values) == 0:
+                logger.error("Empty input data for PSI calculation")
+                return 0.0
+
+            # Remove null values and validate remaining data
+            ref_clean = reference_values.dropna()
+            cur_clean = current_values.dropna()
+
+            if len(ref_clean) == 0 or len(cur_clean) == 0:
+                logger.warning(
+                    "All values are null after cleaning - cannot calculate PSI"
+                )
+                return 0.0
+
+            # Check minimum sample size
+            min_samples = 10
+            if len(ref_clean) < min_samples or len(cur_clean) < min_samples:
+                logger.warning(
+                    f"Insufficient samples for PSI: ref={len(ref_clean)}, cur={len(cur_clean)}, min={min_samples}"
+                )
+                return 0.0
+
+            # Handle categorical data
+            if ref_clean.dtype == "object":
+                return self._calculate_categorical_psi(ref_clean, cur_clean)
+            else:
+                return self._calculate_numerical_psi(ref_clean, cur_clean)
 
         except Exception as error:
             logger.error("PSI calculation failed", error=str(error))
+            return 0.0
+
+    def _calculate_categorical_psi(
+        self, reference_values: pd.Series, current_values: pd.Series
+    ) -> float:
+        """Calculate PSI for categorical data."""
+        try:
+            ref_counts = reference_values.value_counts(normalize=True)
+            cur_counts = current_values.value_counts(normalize=True)
+
+            # Align categories
+            all_categories = set(ref_counts.index) | set(cur_counts.index)
+
+            psi = 0.0
+            for category in all_categories:
+                # Use small value to avoid log(0) but ensure it's meaningful
+                ref_pct = ref_counts.get(category, 1e-6)
+                cur_pct = cur_counts.get(category, 1e-6)
+
+                # Validate percentages
+                if ref_pct <= 0 or cur_pct <= 0:
+                    continue
+
+                psi_component = (cur_pct - ref_pct) * np.log(cur_pct / ref_pct)
+
+                # Check for invalid results
+                if np.isnan(psi_component) or np.isinf(psi_component):
+                    logger.warning(f"Invalid PSI component for category {category}")
+                    continue
+
+                psi += psi_component
+
+            return abs(psi)
+
+        except Exception as error:
+            logger.error("Categorical PSI calculation failed", error=str(error))
+            return 0.0
+
+    def _calculate_numerical_psi(
+        self, reference_values: pd.Series, current_values: pd.Series
+    ) -> float:
+        """Calculate PSI for numerical data."""
+        try:
+            # Remove infinite values
+            ref_finite = reference_values[np.isfinite(reference_values)]
+            cur_finite = current_values[np.isfinite(current_values)]
+
+            if len(ref_finite) == 0 or len(cur_finite) == 0:
+                logger.error("No finite values for PSI calculation")
+                return 0.0
+
+            # Check for constant values
+            if ref_finite.nunique() == 1:
+                logger.warning(
+                    "Reference data has no variation - PSI may not be meaningful"
+                )
+                if cur_finite.nunique() == 1:
+                    return 0.0 if ref_finite.iloc[0] == cur_finite.iloc[0] else 1.0
+
+            # Determine number of bins based on sample size
+            n_bins = min(
+                10, max(3, int(np.sqrt(min(len(ref_finite), len(cur_finite)))))
+            )
+
+            # Create bins based on reference data quantiles for better stability
+            try:
+                bin_edges = np.unique(
+                    np.percentile(ref_finite, np.linspace(0, 100, n_bins + 1))
+                )
+
+                # Ensure we have at least 2 bins
+                if len(bin_edges) < 3:
+                    logger.warning(
+                        "Insufficient unique values for binning - using value range"
+                    )
+                    bin_edges = np.linspace(
+                        ref_finite.min(), ref_finite.max(), n_bins + 1
+                    )
+
+            except Exception:
+                # Fallback binning
+                bin_edges = np.linspace(ref_finite.min(), ref_finite.max(), n_bins + 1)
+
+            # Calculate histograms
+            ref_hist, _ = np.histogram(ref_finite, bins=bin_edges)
+            cur_hist, _ = np.histogram(cur_finite, bins=bin_edges)
+
+            # Normalize to probabilities
+            ref_total = ref_hist.sum()
+            cur_total = cur_hist.sum()
+
+            if ref_total == 0 or cur_total == 0:
+                logger.error("Zero histogram totals in PSI calculation")
+                return 0.0
+
+            ref_probs = ref_hist / ref_total
+            cur_probs = cur_hist / cur_total
+
+            # Add small constant to avoid log(0) - use adaptive smoothing
+            smoothing_factor = 1e-6
+            ref_probs = np.where(ref_probs == 0, smoothing_factor, ref_probs)
+            cur_probs = np.where(cur_probs == 0, smoothing_factor, cur_probs)
+
+            # Calculate PSI
+            psi_components = (cur_probs - ref_probs) * np.log(cur_probs / ref_probs)
+
+            # Remove invalid components
+            valid_components = psi_components[np.isfinite(psi_components)]
+
+            if len(valid_components) == 0:
+                logger.error("No valid PSI components calculated")
+                return 0.0
+
+            psi = np.sum(valid_components)
+
+            return abs(psi) if np.isfinite(psi) else 0.0
+
+        except Exception as error:
+            logger.error("Numerical PSI calculation failed", error=str(error))
             return 0.0
 
     def monitor_performance(
@@ -740,17 +933,93 @@ class ModelMonitor:
         target_column: str | None = None,
         prediction_column: str | None = None,
     ) -> dict[str, Any]:
-        """Generate comprehensive monitoring report using Evidently."""
-        # TODO: Update to use Evidently v0.7+ API
-        logger.warning(
-            "Evidently report generation temporarily disabled - API needs updating"
-        )
-        return {
-            "message": "Evidently report generation temporarily disabled",
-            "model_name": model_name,
-            "reference_samples": len(self.reference_data.get(model_name, [])),
-            "current_samples": len(current_data),
-        }
+        """Generate comprehensive monitoring report using Evidently v0.7+ API."""
+        try:
+            if model_name not in self.reference_data:
+                logger.warning(
+                    "No reference data found for Evidently report",
+                    model_name=model_name,
+                )
+                return {
+                    "message": "No reference data available for report generation",
+                    "model_name": model_name,
+                    "current_samples": len(current_data),
+                }
+
+            from evidently import ColumnMapping
+            from evidently.report import Report
+            from evidently.metrics import (
+                DataDriftTable,
+                DatasetDriftMetric,
+                DatasetSummaryMetric,
+            )
+
+            reference_data = self.reference_data[model_name]
+
+            # Set up column mapping
+            column_mapping = ColumnMapping()
+            if target_column and target_column in current_data.columns:
+                column_mapping.target = target_column
+            if prediction_column and prediction_column in current_data.columns:
+                column_mapping.prediction = prediction_column
+
+            # Create report with v0.7+ metrics
+            report = Report(
+                metrics=[
+                    DatasetSummaryMetric(),
+                    DatasetDriftMetric(),
+                    DataDriftTable(),
+                ]
+            )
+
+            # Run report
+            report.run(
+                reference_data=reference_data,
+                current_data=current_data,
+                column_mapping=column_mapping,
+            )
+
+            # Get results as dict
+            results = report.as_dict()
+
+            logger.info(
+                "Evidently report generated successfully",
+                model_name=model_name,
+                reference_samples=len(reference_data),
+                current_samples=len(current_data),
+            )
+
+            return {
+                "message": "Evidently report generated successfully",
+                "model_name": model_name,
+                "reference_samples": len(reference_data),
+                "current_samples": len(current_data),
+                "report_data": results,
+            }
+
+        except ImportError as e:
+            logger.error(
+                "Evidently not available - install with: pip install evidently>=0.7.0",
+                error=str(e),
+            )
+            return {
+                "message": "Evidently not installed",
+                "model_name": model_name,
+                "error": str(e),
+            }
+        except Exception as error:
+            logger.error(
+                "Failed to generate Evidently report",
+                model_name=model_name,
+                error=str(error),
+            )
+            return {
+                "message": "Failed to generate Evidently report",
+                "model_name": model_name,
+                "reference_samples": len(self.reference_data.get(model_name, [])),
+                "current_samples": len(current_data),
+                "error": str(error),
+            }
 
     def get_monitoring_summary(self, model_name: str) -> dict[str, Any]:
         """Get monitoring summary for a model."""

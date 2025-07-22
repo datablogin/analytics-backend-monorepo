@@ -132,6 +132,9 @@ class ExperimentTracker:
         # Configure MLflow
         self._configure_mlflow()
 
+        # Validate MLflow connectivity
+        self._validate_mlflow_connectivity()
+
         logger.info(
             "Experiment tracker initialized",
             tracking_uri=self.config.mlflow_tracking_uri,
@@ -151,6 +154,30 @@ class ExperimentTracker:
             # Enable system metrics logging
             if self.config.log_system_metrics:
                 mlflow.enable_system_metrics_logging()
+
+    def _validate_mlflow_connectivity(self) -> None:
+        """Validate MLflow tracking server connectivity."""
+        try:
+            # Simple connectivity test - try to list experiments
+            client = mlflow.MlflowClient()
+            experiments = client.search_experiments(max_results=1)
+
+            logger.info(
+                "MLflow connectivity validated for experiment tracker",
+                tracking_uri=self.config.mlflow_tracking_uri,
+                available_experiments=len(experiments) if experiments else 0,
+            )
+
+        except Exception as error:
+            logger.error(
+                "MLflow connectivity validation failed for experiment tracker",
+                tracking_uri=self.config.mlflow_tracking_uri,
+                error=str(error),
+            )
+            logger.warning(
+                "Experiment tracker may not function properly - "
+                "check MLflow server availability"
+            )
 
     def create_experiment(self, metadata: ExperimentMetadata) -> str:
         """Create new experiment."""

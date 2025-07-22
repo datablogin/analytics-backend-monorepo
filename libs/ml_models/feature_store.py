@@ -76,7 +76,11 @@ class FeatureDefinitionModel(Base):
     owner = Column(String(100))
     tags = Column(Text)  # JSON string
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
-    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+    updated_at = Column(
+        DateTime,
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+    )
 
 
 class FeatureValueModel(Base):
@@ -145,10 +149,12 @@ class FeatureValue(BaseModel):
 
     # Temporal information
     timestamp: datetime = Field(
-        default_factory=lambda: datetime.now(timezone.utc), description="Value timestamp"
+        default_factory=lambda: datetime.now(timezone.utc),
+        description="Value timestamp",
     )
     valid_from: datetime = Field(
-        default_factory=lambda: datetime.now(timezone.utc), description="Valid from timestamp"
+        default_factory=lambda: datetime.now(timezone.utc),
+        description="Valid from timestamp",
     )
     valid_until: datetime | None = Field(
         default=None, description="Valid until timestamp"

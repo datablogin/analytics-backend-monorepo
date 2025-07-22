@@ -70,6 +70,23 @@ class ModelServingConfig(BaseConfig):
         default=0.3, description="CPU/memory threshold to scale down"
     )
 
+    # Caching strategy settings
+    cache_strategy: str = Field(
+        default="lru", description="Cache eviction strategy (lru, lfu, size_aware)"
+    )
+    large_model_threshold_mb: float = Field(
+        default=500.0, description="Threshold for considering a model large (MB)"
+    )
+    small_model_cache_ttl_seconds: int = Field(
+        default=7200, description="TTL for small models (2 hours)"
+    )
+    large_model_cache_ttl_seconds: int = Field(
+        default=14400, description="TTL for large models (4 hours)"
+    )
+    high_usage_model_priority: bool = Field(
+        default=True, description="Prioritize high-usage models in cache"
+    )
+
 
 class InferenceRequest(BaseModel):
     """Request for model inference."""
@@ -149,6 +166,7 @@ class ModelContainer:
         model: Any,
         signature: Any = None,
         input_example: Any = None,
+        model_size_mb: float | None = None,
     ):
         self.name = name
         self.version = version
@@ -167,6 +185,10 @@ class ModelContainer:
         # Health status
         self.healthy = True
         self.consecutive_failures = 0
+
+        # Model characteristics for caching strategy
+        self.model_size_mb = model_size_mb or self._estimate_model_size()
+        self.priority_score = 0.0  # Dynamic priority based on usage and size
 
     def update_usage(self) -> None:
         """Update usage statistics."""
@@ -197,6 +219,85 @@ class ModelContainer:
     def idle_seconds(self) -> float:
         """Time since last use in seconds."""
         return (datetime.now(timezone.utc) - self.last_used).total_seconds()
+
+    def _estimate_model_size(self) -> float:
+        """Estimate model size in MB."""
+        try:
+            import sys
+            import pickle
+
+            # Try to get size using pickle serialization (rough estimate)
+            try:
+                model_bytes = pickle.dumps(self.model, protocol=pickle.HIGHEST_PROTOCOL)
+                return len(model_bytes) / (1024 * 1024)  # Convert to MB
+            except Exception:
+                # Fallback to sys.getsizeof (less accurate but works)
+                size_bytes = sys.getsizeof(self.model)
+                return size_bytes / (1024 * 1024)  # Convert to MB
+
+        except Exception:
+            # Default size if estimation fails
+            return 50.0  # 50 MB default
+
+    def calculate_priority_score(self, config: "ModelServingConfig") -> float:
+        """Calculate priority score for cache eviction."""
+        try:
+            # Base score from usage frequency
+            usage_score = min(self.usage_count / 100, 1.0)  # Normalize to 0-1
+
+            # Recency score (more recent = higher score)
+            max_idle_time = 24 * 3600  # 24 hours
+            recency_score = max(0, 1 - (self.idle_seconds / max_idle_time))
+
+            # Size penalty (larger models get lower priority unless heavily used)
+            size_penalty = 1.0
+            if self.model_size_mb > config.large_model_threshold_mb:
+                size_penalty = 0.7  # Large models get 30% penalty
+
+            # High usage bonus
+            usage_bonus = 1.0
+            if config.high_usage_model_priority and self.usage_count > 50:
+                usage_bonus = 1.3  # 30% bonus for high usage models
+
+            # Health penalty
+            health_multiplier = 1.0 if self.healthy else 0.5
+
+            # Combined score
+            priority_score = (
+                (usage_score * 0.4 + recency_score * 0.6)
+                * size_penalty
+                * usage_bonus
+                * health_multiplier
+            )
+
+            self.priority_score = priority_score
+            return priority_score
+
+        except Exception:
+            # Fallback to simple recency-based score
+            return max(0, 1 - (self.idle_seconds / (24 * 3600)))
+
+    def get_cache_ttl(self, config: "ModelServingConfig") -> int:
+        """Get cache TTL based on model characteristics."""
+        if self.model_size_mb > config.large_model_threshold_mb:
+            return config.large_model_cache_ttl_seconds
+        else:
+            return config.small_model_cache_ttl_seconds
+
+    def should_evict(self, config: "ModelServingConfig") -> bool:
+        """Determine if this model should be evicted based on TTL and characteristics."""
+        ttl = self.get_cache_ttl(config)
+
+        # Check basic TTL
+        if self.age_seconds > ttl:
+            return True
+
+        # High-usage models get extended TTL
+        if config.high_usage_model_priority and self.usage_count > 100:
+            extended_ttl = ttl * 1.5  # 50% extension for high-usage models
+            return self.age_seconds > extended_ttl
+
+        return False
 
 
 class ModelServer:
@@ -416,7 +517,7 @@ class ModelServer:
 
             # Add to cache (with eviction if needed)
             if len(self.model_cache) >= self.config.model_cache_size:
-                await self._evict_oldest_model()
+                await self._evict_model_by_strategy()
 
             self.model_cache[cache_key] = model_container
 
@@ -515,50 +616,183 @@ class ModelServer:
             )
             raise
 
-    async def _evict_oldest_model(self) -> None:
-        """Evict the oldest unused model from cache."""
+    async def _evict_model_by_strategy(self) -> None:
+        """Evict model from cache using configured strategy."""
         if not self.model_cache:
             return
 
-        # Find oldest model by last used time
-        oldest_key = min(
+        strategy = self.config.cache_strategy.lower()
+
+        if strategy == "size_aware":
+            eviction_key = self._select_model_for_eviction_size_aware()
+        elif strategy == "lfu":  # Least Frequently Used
+            eviction_key = self._select_model_for_eviction_lfu()
+        else:  # Default to LRU (Least Recently Used)
+            eviction_key = self._select_model_for_eviction_lru()
+
+        if eviction_key:
+            evicted_model = self.model_cache.pop(eviction_key)
+
+            logger.info(
+                "Model evicted from cache",
+                name=evicted_model.name,
+                version=evicted_model.version,
+                age_seconds=evicted_model.age_seconds,
+                usage_count=evicted_model.usage_count,
+                model_size_mb=evicted_model.model_size_mb,
+                strategy=strategy,
+                priority_score=evicted_model.priority_score,
+            )
+
+    def _select_model_for_eviction_lru(self) -> str | None:
+        """Select model for eviction using LRU strategy."""
+        if not self.model_cache:
+            return None
+
+        return min(
             self.model_cache.keys(),
             key=lambda k: self.model_cache[k].last_used,
         )
 
-        evicted_model = self.model_cache.pop(oldest_key)
+    def _select_model_for_eviction_lfu(self) -> str | None:
+        """Select model for eviction using LFU strategy."""
+        if not self.model_cache:
+            return None
 
-        logger.info(
-            "Model evicted from cache",
-            name=evicted_model.name,
-            version=evicted_model.version,
-            age_seconds=evicted_model.age_seconds,
-            usage_count=evicted_model.usage_count,
+        return min(
+            self.model_cache.keys(),
+            key=lambda k: self.model_cache[k].usage_count,
         )
+
+    def _select_model_for_eviction_size_aware(self) -> str | None:
+        """Select model for eviction using size-aware strategy."""
+        if not self.model_cache:
+            return None
+
+        # Calculate priority scores for all models
+        model_priorities = []
+        for cache_key, model_container in self.model_cache.items():
+            priority = model_container.calculate_priority_score(self.config)
+            model_priorities.append((cache_key, priority))
+
+        # Sort by priority (lowest first for eviction)
+        model_priorities.sort(key=lambda x: x[1])
+
+        # Prefer evicting larger, lower-priority models
+        for cache_key, priority in model_priorities:
+            model_container = self.model_cache[cache_key]
+
+            # Check if model should be evicted based on characteristics
+            if model_container.should_evict(self.config):
+                return cache_key
+
+        # If no model meets eviction criteria, evict lowest priority
+        return model_priorities[0][0] if model_priorities else None
+
+    # Maintain backward compatibility
+    async def _evict_oldest_model(self) -> None:
+        """Legacy method - delegate to strategy-based eviction."""
+        await self._evict_model_by_strategy()
 
     async def _preprocess_inputs(
         self,
         inputs: dict[str, Any] | list[dict[str, Any]],
         model_container: ModelContainer,
     ) -> pd.DataFrame:
-        """Preprocess inputs for inference."""
+        """Preprocess inputs for inference with robust validation."""
         try:
-            # Convert to DataFrame
-            if isinstance(inputs, dict):
-                df = pd.DataFrame([inputs])
-            elif isinstance(inputs, list):
-                df = pd.DataFrame(inputs)
-            else:
-                raise ValueError("Inputs must be dict or list of dicts")
+            # Validate and convert inputs to DataFrame
+            df = self._validate_and_convert_inputs(inputs)
+
+            # Validate DataFrame structure
+            if df.empty:
+                raise ValueError("Input data resulted in empty DataFrame")
+
+            # Check for any completely null rows
+            null_rows = df.isnull().all(axis=1).sum()
+            if null_rows > 0:
+                logger.warning(f"Found {null_rows} completely null rows in input data")
 
             # Apply any model-specific preprocessing
             # This is a placeholder for custom preprocessing logic
+
+            logger.debug(
+                "Input preprocessing completed",
+                input_shape=df.shape,
+                columns=list(df.columns),
+            )
 
             return df
 
         except Exception as error:
             logger.error("Failed to preprocess inputs", error=str(error))
             raise
+
+    def _validate_and_convert_inputs(
+        self, inputs: dict[str, Any] | list[dict[str, Any]]
+    ) -> pd.DataFrame:
+        """Validate input format and convert to DataFrame."""
+        if isinstance(inputs, dict):
+            # Single record case
+            if not inputs:
+                raise ValueError("Input dictionary cannot be empty")
+
+            # Validate all values are serializable
+            for key, value in inputs.items():
+                if not isinstance(key, str):
+                    raise ValueError(
+                        f"All input keys must be strings, got {type(key)} for key: {key}"
+                    )
+
+                # Check for problematic values
+                if value is not None and not isinstance(
+                    value, (str, int, float, bool, list)
+                ):
+                    logger.warning(
+                        f"Input value for key '{key}' may not be serializable: {type(value)}"
+                    )
+
+            return pd.DataFrame([inputs])
+
+        elif isinstance(inputs, list):
+            # Batch case
+            if not inputs:
+                raise ValueError("Input list cannot be empty")
+
+            # Validate all items are dictionaries
+            for i, item in enumerate(inputs):
+                if not isinstance(item, dict):
+                    raise ValueError(
+                        f"List item at index {i} must be a dict, got {type(item)}"
+                    )
+
+                if not item:
+                    raise ValueError(f"Input dictionary at index {i} cannot be empty")
+
+            # Check for consistent keys across all dictionaries
+            if len(inputs) > 1:
+                first_keys = set(inputs[0].keys())
+                for i, item in enumerate(inputs[1:], 1):
+                    item_keys = set(item.keys())
+                    if item_keys != first_keys:
+                        missing_keys = first_keys - item_keys
+                        extra_keys = item_keys - first_keys
+
+                        warning_msg = f"Inconsistent keys in input at index {i}"
+                        if missing_keys:
+                            warning_msg += f". Missing: {missing_keys}"
+                        if extra_keys:
+                            warning_msg += f". Extra: {extra_keys}"
+
+                        logger.warning(warning_msg)
+
+            return pd.DataFrame(inputs)
+
+        else:
+            raise ValueError(
+                f"Inputs must be dict or list of dicts, got {type(inputs)}. "
+                f"Supported formats: dict for single inference, list[dict] for batch inference"
+            )
 
     async def _validate_inputs(
         self,

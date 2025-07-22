@@ -46,6 +46,11 @@ class ModelRegistryConfig(BaseConfig):
     s3_bucket: str | None = Field(
         default=None, description="S3 bucket for artifact storage"
     )
+    # Secure credential management - use IAM roles, not direct credentials
+    use_iam_role: bool = Field(
+        default=True, description="Use IAM role for S3 authentication (recommended)"
+    )
+    s3_region: str | None = Field(default=None, description="AWS region for S3 bucket")
 
     # Model validation settings
     require_model_signature: bool = Field(
@@ -124,6 +129,9 @@ class ModelRegistry:
         # Initialize registry
         self.client = mlflow.MlflowClient()
 
+        # Validate MLflow connectivity
+        self._validate_mlflow_connectivity()
+
         logger.info(
             "Model registry initialized",
             tracking_uri=self.config.mlflow_tracking_uri,
@@ -137,11 +145,160 @@ class ModelRegistry:
 
         # Set artifact storage based on backend
         if self.config.artifact_storage_backend == "s3" and self.config.s3_bucket:
-            os.environ["MLFLOW_S3_ENDPOINT_URL"] = f"s3://{self.config.s3_bucket}"
+            # Secure S3 configuration - avoid setting credentials in environment
+            if self.config.use_iam_role:
+                # Use IAM role authentication (recommended)
+                logger.info(
+                    "Using IAM role for S3 authentication",
+                    bucket=self.config.s3_bucket,
+                    region=self.config.s3_region,
+                )
+                # MLflow will automatically use boto3's credential chain
+                # which includes IAM roles, instance profiles, etc.
+            else:
+                logger.warning(
+                    "S3 backend configured without IAM role - "
+                    "ensure credentials are securely managed via AWS credential chain"
+                )
+
+            # Set S3 region if specified
+            if self.config.s3_region:
+                os.environ["AWS_DEFAULT_REGION"] = self.config.s3_region
 
         # Set registry URI if different from tracking
         if self.config.mlflow_registry_uri != self.config.mlflow_tracking_uri:
             mlflow.set_registry_uri(self.config.mlflow_registry_uri)
+
+    def _validate_mlflow_connectivity(self) -> None:
+        """Validate MLflow tracking server connectivity."""
+        try:
+            # Test basic connectivity by listing experiments
+            experiments = self.client.search_experiments(max_results=1)
+
+            # Test tracking server health
+            tracking_uri = self.config.mlflow_tracking_uri
+            if tracking_uri.startswith("http"):
+                # For HTTP backends, try a simple ping
+                import requests
+
+                health_url = f"{tracking_uri.rstrip('/')}/health"
+                try:
+                    response = requests.get(health_url, timeout=5)
+                    if response.status_code != 200:
+                        logger.warning(
+                            "MLflow tracking server health check failed",
+                            status_code=response.status_code,
+                            tracking_uri=tracking_uri,
+                        )
+                except requests.RequestException as req_error:
+                    logger.warning(
+                        "Could not reach MLflow tracking server health endpoint",
+                        error=str(req_error),
+                        tracking_uri=tracking_uri,
+                    )
+
+            logger.info(
+                "MLflow connectivity validated successfully",
+                tracking_uri=tracking_uri,
+                available_experiments=len(experiments) if experiments else 0,
+            )
+
+        except Exception as error:
+            logger.error(
+                "MLflow connectivity validation failed",
+                tracking_uri=self.config.mlflow_tracking_uri,
+                error=str(error),
+            )
+            # Don't fail initialization, but warn
+            logger.warning(
+                "Continuing with potentially unavailable MLflow backend - "
+                "operations may fail at runtime"
+            )
+
+    def _validate_model_signature(
+        self, model_signature: Any | None, input_example: Any | None
+    ) -> None:
+        """Validate model signature with type checking."""
+        if model_signature is None:
+            raise ValueError("Model signature is required but not provided")
+
+        try:
+            # Try to import MLflow's signature validation
+            from mlflow.types import Schema
+            from mlflow.models.signature import ModelSignature
+
+            if not isinstance(model_signature, ModelSignature):
+                raise ValueError(
+                    f"Model signature must be of type ModelSignature, got {type(model_signature)}"
+                )
+
+            # Validate signature has inputs
+            if not hasattr(model_signature, "inputs") or model_signature.inputs is None:
+                raise ValueError("Model signature must have input schema defined")
+
+            # Validate input schema
+            if not isinstance(model_signature.inputs, Schema):
+                raise ValueError("Model signature inputs must be a valid Schema")
+
+            # If input example provided, validate compatibility
+            if input_example is not None:
+                try:
+                    import pandas as pd
+                    import numpy as np
+
+                    # Convert input example to pandas DataFrame for validation
+                    if isinstance(input_example, (dict, list)):
+                        example_df = pd.DataFrame(
+                            input_example
+                            if isinstance(input_example, list)
+                            else [input_example]
+                        )
+                    elif isinstance(input_example, pd.DataFrame):
+                        example_df = input_example
+                    elif isinstance(input_example, np.ndarray):
+                        example_df = pd.DataFrame(input_example)
+                    else:
+                        logger.warning(
+                            "Cannot validate input example compatibility - unsupported type",
+                            example_type=type(input_example).__name__,
+                        )
+                        return
+
+                    # Validate that example columns match signature
+                    signature_columns = set(model_signature.inputs.input_names())
+                    example_columns = set(example_df.columns.astype(str))
+
+                    if signature_columns != example_columns:
+                        missing_in_example = signature_columns - example_columns
+                        extra_in_example = example_columns - signature_columns
+
+                        error_msg = "Input example does not match model signature"
+                        if missing_in_example:
+                            error_msg += f". Missing columns: {missing_in_example}"
+                        if extra_in_example:
+                            error_msg += f". Extra columns: {extra_in_example}"
+
+                        raise ValueError(error_msg)
+
+                    logger.info(
+                        "Model signature validation passed",
+                        input_columns=len(signature_columns),
+                        example_rows=len(example_df),
+                    )
+
+                except Exception as validation_error:
+                    logger.warning(
+                        "Input example validation failed", error=str(validation_error)
+                    )
+                    # Don't fail registration for example validation issues
+
+        except ImportError:
+            logger.warning(
+                "MLflow signature types not available - skipping detailed validation"
+            )
+        except Exception as error:
+            logger.error("Model signature validation failed", error=str(error))
+            raise ValueError(f"Invalid model signature: {error}")
 
     def register_model(
         self,
@@ -156,8 +313,8 @@ class ModelRegistry:
 
         try:
             # Validate requirements
-            if self.config.require_model_signature and model_signature is None:
-                raise ValueError("Model signature is required but not provided")
+            if self.config.require_model_signature:
+                self._validate_model_signature(model_signature, input_example)
 
             if self.config.require_input_example and input_example is None:
                 raise ValueError("Input example is required but not provided")
@@ -199,7 +356,9 @@ class ModelRegistry:
                     model_name=metadata.name,
                     version=metadata.version,
                     stage=metadata.stage,
-                    duration_seconds=(datetime.now(timezone.utc) - start_time).total_seconds(),
+                    duration_seconds=(
+                        datetime.now(timezone.utc) - start_time
+                    ).total_seconds(),
                 )
 
                 logger.info(
@@ -216,7 +375,9 @@ class ModelRegistry:
             self.metrics.record_model_registration_error(
                 model_name=metadata.name,
                 error_type=type(error).__name__,
-                duration_seconds=(datetime.now(timezone.utc) - start_time).total_seconds(),
+                duration_seconds=(
+                    datetime.now(timezone.utc) - start_time
+                ).total_seconds(),
             )
             logger.error(
                 "Failed to register model",
