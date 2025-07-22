@@ -742,6 +742,7 @@ class FeatureStore:
             # Count features by type
             feature_counts = {}
             from sqlalchemy import func
+
             results = (
                 session.query(
                     FeatureDefinitionModel.feature_type,
