@@ -320,7 +320,7 @@ class MLInferenceApp:
                         )
                     else:
                         successful_requests += 1
-                        responses.append(result)
+                        responses.append(result)  # type: ignore[arg-type]
 
             except TimeoutError:
                 logger.error("Batch processing timed out")

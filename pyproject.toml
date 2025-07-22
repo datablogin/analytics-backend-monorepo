@@ -40,6 +40,7 @@ dependencies = [
     "deprecated>=1.2.18",
     "croniter>=3.0.0",
     "types-croniter>=3.0.0",
+    "types-requests>=2.31.0.0",
 ]
 
 [project.optional-dependencies]

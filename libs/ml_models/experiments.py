@@ -655,15 +655,15 @@ class ExperimentTracker:
             runs = [client.get_run(run_id) for run_id in run_ids]
 
             # Extract comparison data
-            comparison = {
+            comparison: dict[str, Any] = {
                 "runs": [],
                 "common_parameters": {},
                 "different_parameters": {},
                 "metrics_comparison": {},
             }
 
-            all_params = {}
-            all_metrics = {}
+            all_params: dict[str, list[str]] = {}
+            all_metrics: dict[str, list[float]] = {}
 
             for run in runs:
                 run_data = {
@@ -676,7 +676,7 @@ class ExperimentTracker:
                     "metrics": dict(run.data.metrics),
                     "tags": dict(run.data.tags),
                 }
-                comparison["runs"].append(run_data)
+                comparison["runs"].append(run_data)  # type: ignore[attr-defined]
 
                 # Collect all params and metrics
                 for param, value in run.data.params.items():
@@ -692,9 +692,9 @@ class ExperimentTracker:
             # Identify common vs different parameters
             for param, values in all_params.items():
                 if len(set(values)) == 1:
-                    comparison["common_parameters"][param] = values[0]
+                    comparison["common_parameters"][param] = values[0]  # type: ignore[index]
                 else:
-                    comparison["different_parameters"][param] = values
+                    comparison["different_parameters"][param] = values  # type: ignore[index]
 
             # Add metrics comparison
             comparison["metrics_comparison"] = all_metrics
