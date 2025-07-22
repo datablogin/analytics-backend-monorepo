@@ -11,6 +11,7 @@ from .feature_store import (
     FeatureSet,
     FeatureStore,
     FeatureStoreConfig,
+    FeatureTransformation,
     FeatureValue,
 )
 from .monitoring import (
@@ -53,6 +54,7 @@ __all__ = [
     "FeatureStore",
     "FeatureStoreConfig",
     "FeatureDefinition",
+    "FeatureTransformation",
     "FeatureValue",
     "FeatureSet",
 ]
