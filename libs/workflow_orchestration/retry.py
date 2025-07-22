@@ -5,7 +5,7 @@ import random
 import time
 from abc import ABC, abstractmethod
 from collections.abc import Callable
-from datetime import timezone, datetime
+from datetime import UTC, datetime
 from enum import Enum
 from typing import Any
 
@@ -268,7 +268,7 @@ class CircuitBreaker:
         elif self.state == "open":
             if self.last_failure_time:
                 time_since_failure = (
-                    datetime.now(timezone.utc) - self.last_failure_time
+                    datetime.now(UTC) - self.last_failure_time
                 ).total_seconds()
                 if time_since_failure >= self.timeout_seconds:
                     self.state = "half-open"
@@ -286,7 +286,7 @@ class CircuitBreaker:
     def record_failure(self) -> None:
         """Record failed execution."""
         self.failure_count += 1
-        self.last_failure_time = datetime.now(timezone.utc)
+        self.last_failure_time = datetime.now(UTC)
 
         if self.failure_count >= self.failure_threshold:
             self.state = "open"

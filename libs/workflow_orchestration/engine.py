@@ -4,7 +4,7 @@ import asyncio
 import uuid
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
-from datetime import timezone, datetime
+from datetime import UTC, datetime
 from typing import Any
 
 import structlog
@@ -128,7 +128,7 @@ class WorkflowExecutor:
         retry_policy: RetryPolicy | None = None,
     ) -> TaskResult:
         """Execute single task with retry logic."""
-        task_start = datetime.now(timezone.utc)
+        task_start = datetime.now(UTC)
 
         logger.info(
             "Starting task execution",
@@ -172,7 +172,7 @@ class WorkflowExecutor:
 
             # Mark task as successful
             task.status = TaskStatus.SUCCESS
-            task.end_time = datetime.now(timezone.utc)
+            task.end_time = datetime.now(UTC)
 
             # Create task result
             task_result = TaskResult(
@@ -203,7 +203,7 @@ class WorkflowExecutor:
 
         except Exception as error:
             task.status = TaskStatus.FAILED
-            task.end_time = datetime.now(timezone.utc)
+            task.end_time = datetime.now(UTC)
             task.error_message = str(error)
 
             # Create failed task result
@@ -305,7 +305,7 @@ class WorkflowEngine:
         context = ExecutionContext(
             workflow_id=execution_id,
             workflow_name=workflow_name,
-            execution_date=datetime.now(timezone.utc),
+            execution_date=datetime.now(UTC),
             parameters=parameters or {},
             user_id=user_id,
             trigger_type=trigger_type,
@@ -521,8 +521,8 @@ class WorkflowEngine:
                 task_name=task_name,
                 status=TaskStatus.FAILED.value,
                 error_message=str(error),
-                start_time=datetime.now(timezone.utc),
-                end_time=datetime.now(timezone.utc),
+                start_time=datetime.now(UTC),
+                end_time=datetime.now(UTC),
             )
 
     async def cancel_workflow(self, execution_id: str) -> bool:

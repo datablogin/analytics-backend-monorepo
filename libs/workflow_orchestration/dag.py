@@ -2,7 +2,7 @@
 
 import uuid
 from collections.abc import Callable
-from datetime import timezone, datetime
+from datetime import UTC, datetime
 from enum import Enum
 from typing import Any
 
@@ -63,10 +63,10 @@ class TaskConfig(BaseModel):
     resources: ResourceRequirement = Field(default_factory=ResourceRequirement)
     tags: list[str] = Field(default_factory=list, description="Task tags")
     owner: str | None = Field(default=None, description="Task owner")
-    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
     @validator("name")
-    def validate_name(cls, v: str) -> str:
+    def validate_name(cls, v: str) -> str:  # noqa: N805
         """Validate task name format."""
         if not v or not v.strip():
             raise ValueError("Task name cannot be empty")
@@ -172,11 +172,11 @@ class WorkflowDefinition(BaseModel):
     notifications: list[str] = Field(
         default_factory=list, description="Notification channels"
     )
-    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
-    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
     @validator("name")
-    def validate_name(cls, v: str) -> str:
+    def validate_name(cls, v: str) -> str:  # noqa: N805
         """Validate workflow name format."""
         if not v or not v.strip():
             raise ValueError("Workflow name cannot be empty")
@@ -192,7 +192,7 @@ class DAG:
         self.definition = definition
         self.tasks: dict[str, Task] = {}
         self.execution_id: str | None = None
-        self.created_at = datetime.now(timezone.utc)
+        self.created_at = datetime.now(UTC)
 
     def add_task(self, task: Task) -> None:
         """Add task to DAG."""

@@ -1,6 +1,6 @@
 """Workflow storage and execution history management."""
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import structlog
@@ -15,7 +15,7 @@ class WorkflowVersion(BaseModel):
     name: str = Field(description="Workflow name")
     version: str = Field(description="Version identifier")
     definition: dict[str, Any] = Field(description="Workflow definition")
-    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     created_by: str = Field(description="User who created this version")
     changelog: str | None = Field(
         default=None, description="Changes in this version"
@@ -68,7 +68,7 @@ class ExecutionArtifact(BaseModel):
     checksum: str | None = Field(default=None, description="Artifact checksum")
 
     # Timing
-    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     expires_at: datetime | None = Field(default=None, description="Expiration time")
 
     # Access control
@@ -152,7 +152,7 @@ class ExecutionHistory(BaseModel):
     tags: list[str] = Field(default_factory=list, description="Execution tags")
 
     # Storage
-    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     archived_at: datetime | None = Field(
         default=None, description="When record was archived"
     )
@@ -391,7 +391,7 @@ class WorkflowStorage:
 
         history = self.execution_histories[execution_id]
         history.is_archived = True
-        history.archived_at = datetime.now(timezone.utc)
+        history.archived_at = datetime.now(UTC)
 
         logger.info("Execution history archived", execution_id=execution_id)
         return True
@@ -485,7 +485,7 @@ class WorkflowStorage:
 
     def cleanup_expired_artifacts(self) -> int:
         """Clean up expired artifacts."""
-        current_time = datetime.now(timezone.utc)
+        current_time = datetime.now(UTC)
         expired_artifacts = []
 
         for artifact in self.execution_artifacts.values():
@@ -529,7 +529,7 @@ class WorkflowStorage:
         )
 
         # Recent activity (last 24 hours)
-        recent_time = datetime.now(timezone.utc) - timedelta(hours=24)
+        recent_time = datetime.now(UTC) - timedelta(hours=24)
         recent_executions = len(
             [
                 h
@@ -564,7 +564,7 @@ class WorkflowStorage:
                 "recent_artifacts_24h": recent_artifacts,
             },
             "storage_backend": self.storage_backend,
-            "last_updated": datetime.now(timezone.utc).isoformat(),
+            "last_updated": datetime.now(UTC).isoformat(),
         }
 
     def _get_active_executions_for_version(
@@ -597,7 +597,7 @@ class WorkflowStorage:
 
         return {
             "workflow_version": workflow_version.model_dump(),
-            "export_timestamp": datetime.now(timezone.utc).isoformat(),
+            "export_timestamp": datetime.now(UTC).isoformat(),
             "format_version": "1.0",
         }
 

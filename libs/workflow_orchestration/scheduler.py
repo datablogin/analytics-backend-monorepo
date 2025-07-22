@@ -3,7 +3,7 @@
 import asyncio
 import re
 from abc import ABC, abstractmethod
-from datetime import timezone, datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from enum import Enum
 from typing import Any
 
@@ -43,7 +43,7 @@ class BaseTrigger(ABC):
         self.workflow_name = workflow_name
         self.workflow_version = workflow_version
         self.status = TriggerStatus.INACTIVE
-        self.created_at = datetime.now(timezone.utc)
+        self.created_at = datetime.now(UTC)
         self.last_triggered: datetime | None = None
         self.trigger_count = 0
         self.error_count = 0
@@ -61,7 +61,7 @@ class BaseTrigger(ABC):
 
     def mark_triggered(self) -> None:
         """Mark trigger as fired."""
-        self.last_triggered = datetime.now(timezone.utc)
+        self.last_triggered = datetime.now(UTC)
         self.trigger_count += 1
         logger.info(
             "Trigger fired",
@@ -166,7 +166,7 @@ class CronTrigger(BaseTrigger):
         """Get next cron scheduled time."""
         try:
             # Reset iterator to current time
-            self.cron_iter = croniter(self.cron_expression, datetime.now(timezone.utc))
+            self.cron_iter = croniter(self.cron_expression, datetime.now(UTC))
             return self.cron_iter.get_next(datetime)
         except Exception as e:
             logger.error("Error calculating next cron time", error=str(e))
@@ -186,7 +186,7 @@ class IntervalTrigger(BaseTrigger):
     ):
         super().__init__(name, workflow_name, workflow_version)
         self.interval_seconds = interval_seconds
-        self.start_time = start_time or datetime.now(timezone.utc)
+        self.start_time = start_time or datetime.now(UTC)
 
         logger.info(
             "Interval trigger created",
@@ -392,7 +392,7 @@ class TriggerConfig(BaseModel):
     )
 
     @validator("cron_expression")
-    def validate_cron(cls, v: str | None, values: dict[str, Any]) -> str | None:
+    def validate_cron(cls, v: str | None, values: dict[str, Any]) -> str | None:  # noqa: N805
         """Validate cron expression if trigger type is cron."""
         if values.get("trigger_type") == TriggerType.CRON:
             if not v:
@@ -405,7 +405,7 @@ class TriggerConfig(BaseModel):
 
     @validator("interval_seconds")
     def validate_interval(
-        cls, v: int | None, values: dict[str, Any]
+        cls, v: int | None, values: dict[str, Any]  # noqa: N805
     ) -> int | None:
         """Validate interval for interval trigger."""
         if values.get("trigger_type") == TriggerType.INTERVAL:
@@ -419,7 +419,7 @@ class TriggerConfig(BaseModel):
 
     @validator("event_type")
     def validate_event_type(
-        cls, v: str | None, values: dict[str, Any]
+        cls, v: str | None, values: dict[str, Any]  # noqa: N805
     ) -> str | None:
         """Validate event type for event trigger."""
         if values.get("trigger_type") == TriggerType.EVENT:
@@ -429,7 +429,7 @@ class TriggerConfig(BaseModel):
 
     @validator("webhook_path")
     def validate_webhook_path(
-        cls, v: str | None, values: dict[str, Any]
+        cls, v: str | None, values: dict[str, Any]  # noqa: N805
     ) -> str | None:
         """Validate webhook path for webhook trigger."""
         if values.get("trigger_type") == TriggerType.WEBHOOK:
@@ -578,7 +578,7 @@ class WorkflowScheduler:
         """Main scheduler loop."""
         while self.running:
             try:
-                current_time = datetime.now(timezone.utc)
+                current_time = datetime.now(UTC)
 
                 # Check all triggers
                 for trigger in list(self.triggers.values()):

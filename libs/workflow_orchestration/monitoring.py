@@ -1,6 +1,6 @@
 """Workflow monitoring and metrics collection."""
 
-from datetime import timezone, datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import structlog
@@ -71,7 +71,7 @@ class ExecutionMetrics(BaseModel):
     # Metadata
     metrics_period_start: datetime = Field(description="Start of metrics period")
     metrics_period_end: datetime = Field(description="End of metrics period")
-    last_updated: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    last_updated: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
 
 class WorkflowHealthCheck(BaseModel):
@@ -108,7 +108,7 @@ class WorkflowHealthCheck(BaseModel):
     )
 
     # Check metadata
-    last_check: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    last_check: datetime = Field(default_factory=lambda: datetime.now(UTC))
     next_check: datetime | None = Field(
         default=None, description="Next scheduled check"
     )
@@ -154,7 +154,7 @@ class AlertRule(BaseModel):
     )
 
     # Metadata
-    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     last_triggered: datetime | None = Field(
         default=None, description="Last time alert triggered"
     )
@@ -180,7 +180,7 @@ class AlertInstance(BaseModel):
     metric_values: dict[str, float] = Field(description="Metric values at trigger time")
 
     # Timing
-    triggered_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    triggered_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     acknowledged_at: datetime | None = Field(
         default=None, description="When alert was acknowledged"
     )
@@ -238,12 +238,12 @@ class WorkflowMonitor:
             cached_metrics = self.metrics_cache[cache_key]
             # Use cache if less than 5 minutes old
             if (
-                datetime.now(timezone.utc) - cached_metrics.last_updated
+                datetime.now(UTC) - cached_metrics.last_updated
             ).total_seconds() < 300:
                 return cached_metrics
 
         # Calculate metrics
-        end_time = datetime.now(timezone.utc)
+        end_time = datetime.now(UTC)
         start_time = end_time - timedelta(hours=period_hours)
 
         # Get executions for the period
@@ -460,7 +460,7 @@ class WorkflowMonitor:
             recurring_failures=recurring_failures,
             performance_issues=performance_issues,
             recommendations=recommendations,
-            next_check=datetime.now(timezone.utc) + timedelta(minutes=30),
+            next_check=datetime.now(UTC) + timedelta(minutes=30),
         )
 
         # Cache the health check
@@ -610,7 +610,7 @@ class WorkflowMonitor:
     def check_alert_conditions(self) -> list[AlertInstance]:
         """Check all alert rules and trigger alerts if conditions are met."""
         triggered_alerts = []
-        current_time = datetime.now(timezone.utc)
+        current_time = datetime.now(UTC)
 
         for rule in self.alert_rules.values():
             if not rule.enabled:
@@ -757,7 +757,7 @@ class WorkflowMonitor:
         if alert_id in self.active_alerts:
             alert = self.active_alerts[alert_id]
             alert.status = "acknowledged"
-            alert.acknowledged_at = datetime.now(timezone.utc)
+            alert.acknowledged_at = datetime.now(UTC)
             alert.acknowledged_by = acknowledged_by
 
             logger.info(
@@ -773,7 +773,7 @@ class WorkflowMonitor:
         if alert_id in self.active_alerts:
             alert = self.active_alerts[alert_id]
             alert.status = "resolved"
-            alert.resolved_at = datetime.now(timezone.utc)
+            alert.resolved_at = datetime.now(UTC)
             alert.resolution_notes = resolution_notes
 
             logger.info(
@@ -811,7 +811,7 @@ class WorkflowMonitor:
         )
 
         # Recent activity (last 24 hours)
-        recent_time = datetime.now(timezone.utc) - timedelta(hours=24)
+        recent_time = datetime.now(UTC) - timedelta(hours=24)
         recent_executions = [
             e
             for e in all_executions
@@ -833,5 +833,5 @@ class WorkflowMonitor:
             "system_success_rate_24h": recent_success_rate,
             "active_alerts": active_alerts_count,
             "alert_rules": len(self.alert_rules),
-            "last_updated": datetime.now(timezone.utc).isoformat(),
+            "last_updated": datetime.now(UTC).isoformat(),
         }

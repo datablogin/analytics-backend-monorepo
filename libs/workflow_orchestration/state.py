@@ -1,6 +1,6 @@
 """Workflow state management and execution context."""
 
-from datetime import timezone, datetime
+from datetime import UTC, datetime
 from enum import Enum
 from typing import Any
 
@@ -182,14 +182,14 @@ class WorkflowExecution(BaseModel):
 
     def mark_started(self) -> None:
         """Mark execution as started."""
-        self.start_time = datetime.now(timezone.utc)
+        self.start_time = datetime.now(UTC)
         self.status = WorkflowStatus.RUNNING
 
     def mark_completed(
         self, success: bool, error_message: str | None = None
     ) -> None:
         """Mark execution as completed."""
-        self.end_time = datetime.now(timezone.utc)
+        self.end_time = datetime.now(UTC)
         self.calculate_duration()
         self.update_metrics()
 
@@ -201,7 +201,7 @@ class WorkflowExecution(BaseModel):
 
     def mark_cancelled(self) -> None:
         """Mark execution as cancelled."""
-        self.end_time = datetime.now(timezone.utc)
+        self.end_time = datetime.now(UTC)
         self.calculate_duration()
         self.status = WorkflowStatus.CANCELLED
 
@@ -227,7 +227,7 @@ class WorkflowState:
             workflow_name=workflow_name,
             workflow_version=workflow_version,
             context=context,
-            scheduled_time=scheduled_time or datetime.now(timezone.utc),
+            scheduled_time=scheduled_time or datetime.now(UTC),
         )
 
         self.executions[execution_id] = execution
@@ -335,7 +335,7 @@ class WorkflowState:
 
         # Sort by start time (newest first)
         executions.sort(
-            key=lambda e: e.start_time or datetime.min.replace(tzinfo=timezone.utc),
+            key=lambda e: e.start_time or datetime.min.replace(tzinfo=UTC),
             reverse=True,
         )
 
