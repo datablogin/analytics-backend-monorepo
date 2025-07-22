@@ -38,6 +38,7 @@ dependencies = [
     "opentelemetry-instrumentation-redis>=0.40b0",
     "prometheus-client>=0.19.0",
     "deprecated>=1.2.18",
+    "croniter>=3.0.0",
 ]
 
 [project.optional-dependencies]
