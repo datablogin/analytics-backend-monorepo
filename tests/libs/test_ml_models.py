@@ -53,7 +53,9 @@ def temp_mlflow_path():
 @pytest.fixture
 def sample_model_data():
     """Generate sample model training data."""
-    features, target = make_classification(n_samples=100, n_features=10, random_state=42)
+    features, target = make_classification(
+        n_samples=100, n_features=10, random_state=42
+    )
     features_train, features_test, target_train, target_test = train_test_split(
         features, target, test_size=0.2, random_state=42
     )
@@ -69,7 +71,9 @@ def sample_model_data():
 @pytest.fixture
 def sample_regression_data():
     """Generate sample regression data."""
-    features, target = make_regression(n_samples=100, n_features=5, noise=0.1, random_state=42)
+    features, target = make_regression(
+        n_samples=100, n_features=5, noise=0.1, random_state=42
+    )
     features_train, features_test, target_train, target_test = train_test_split(
         features, target, test_size=0.2, random_state=42
     )
@@ -146,7 +150,9 @@ class TestModelRegistry:
         self, mock_log_model, mock_start_run, temp_mlflow_path, sample_model_data
     ):
         """Test model registration process."""
-        features_train, features_test, target_train, target_test, feature_names = sample_model_data
+        features_train, features_test, target_train, target_test, feature_names = (
+            sample_model_data
+        )
 
         # Train a simple model
         model = RandomForestClassifier(n_estimators=10, random_state=42)
@@ -464,7 +470,9 @@ class TestIntegration:
         self, temp_mlflow_path, sample_model_data
     ):
         """Test complete model lifecycle from training to serving."""
-        features_train, features_test, target_train, target_test, feature_names = sample_model_data
+        features_train, features_test, target_train, target_test, feature_names = (
+            sample_model_data
+        )
 
         # 1. Train model
         model = RandomForestClassifier(n_estimators=10, random_state=42)
@@ -534,7 +542,9 @@ class TestIntegration:
 
     def test_feature_store_to_model_pipeline(self, temp_db_path, sample_model_data):
         """Test pipeline from feature store to model training."""
-        features_train, features_test, target_train, target_test, feature_names = sample_model_data
+        features_train, features_test, target_train, target_test, feature_names = (
+            sample_model_data
+        )
 
         # 1. Setup feature store
         config = FeatureStoreConfig(
