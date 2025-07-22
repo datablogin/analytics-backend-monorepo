@@ -509,11 +509,11 @@ class TestIntegration:
             mock_run = MagicMock()
             mock_run.info.run_id = "test_integration_run_id"
             mock_start_run.return_value.__enter__.return_value = mock_run
-            
+
             mock_version = MagicMock()
             mock_version.version = "1.0.0"
             mock_register.return_value = mock_version
-            
+
             registry = ModelRegistry(reg_config)
 
             model_metadata = ModelMetadata(
@@ -631,11 +631,11 @@ class TestErrorHandling:
             mock_run = MagicMock()
             mock_run.info.run_id = "test_error_run_id"
             mock_start_run.return_value.__enter__.return_value = mock_run
-            
+
             mock_version = MagicMock()
             mock_version.version = "1.0.0"
             mock_register.return_value = mock_version
-            
+
             # Should handle invalid framework gracefully by falling back to pyfunc
             version = registry.register_model(model, metadata)
             assert version is not None
@@ -652,7 +652,7 @@ class TestErrorHandling:
         # but still has correct column structure
         assert "entity_id" in df.columns
         assert "non_existent_feature" in df.columns
-        
+
         # For this test, let's check that it handles missing features gracefully
         # by returning empty result instead of raising an error
         assert len(df) == 0 or (len(df) == 1 and pd.isna(df.loc[0, "non_existent_feature"]))
