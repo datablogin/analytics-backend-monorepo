@@ -5,7 +5,7 @@ import random
 import time
 from abc import ABC, abstractmethod
 from collections.abc import Callable
-from datetime import UTC, datetime
+from datetime import UTC, datetime  # type: ignore[attr-defined]
 from enum import Enum
 from typing import Any
 
@@ -314,7 +314,7 @@ class RetryExecutor:
         task_name: str = "unknown",
         context: dict[str, Any] | None = None,
         **kwargs,
-    ) -> Any:
+    ) -> tuple[Any, int]:
         """Execute function with retry logic."""
         attempt = 0
         last_error = None
@@ -351,7 +351,7 @@ class RetryExecutor:
                     "Task executed successfully", task_name=task_name, attempt=attempt
                 )
 
-                return result
+                return result, attempt - 1  # Return result and retry count (attempts - 1)
 
             except Exception as error:
                 last_error = error
@@ -402,8 +402,18 @@ class RetryExecutor:
             final_error=str(last_error),
         )
 
-        raise last_error or Exception(
-            f"Task '{task_name}' failed after {attempt} attempts"
+        # Include retry count in the exception for tracking
+        class TaskExecutionError(Exception):
+            """Custom exception with retry count tracking."""
+            def __init__(self, message: str, retry_count: int, original_error: Exception | None = None):
+                super().__init__(message)
+                self.retry_count = retry_count
+                self.original_error = original_error
+
+        raise TaskExecutionError(
+            f"Task '{task_name}' failed after {attempt - 1} retries ({attempt} attempts)",
+            retry_count=attempt - 1,
+            original_error=last_error
         )
 
 

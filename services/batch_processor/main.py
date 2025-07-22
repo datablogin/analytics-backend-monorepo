@@ -9,35 +9,38 @@ import asyncio
 import os
 import signal
 import sys
-from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional
+from datetime import UTC, datetime  # type: ignore[attr-defined]
+from pathlib import Path
+from typing import Any
 
 import structlog
 from celery import Celery
 from pydantic import BaseModel, Field
 
-# Add the project root to Python path
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
+# Ensure the project root is in Python path (safe approach)
+# Note: This is needed for the service to import libs when run standalone
+project_root = Path(__file__).parent.parent.parent
+if str(project_root) not in sys.path:
+    sys.path.insert(0, str(project_root))
 
-from libs.workflow_orchestration import (
+# Import after path setup (required for standalone execution)
+from libs.workflow_orchestration import (  # noqa: E402
     DAG,
+    AlertRule,
+    ResourceRequirement,
     Task,
     TaskConfig,
     TaskType,
-    ResourceRequirement,
-    WorkflowDefinition,
-    WorkflowEngine,
-    WorkflowScheduler,
-    WorkflowMonitor,
-    WorkflowStorage,
     TriggerConfig,
     TriggerType,
-    AlertRule,
-    RetryPolicy,
-    create_default_retry_policy,
+    WorkflowDefinition,
+    WorkflowEngine,
+    WorkflowMonitor,
+    WorkflowScheduler,
+    WorkflowStorage,
     create_aggressive_retry_policy,
+    create_default_retry_policy,
 )
-from libs.workflow_orchestration.state import ExecutionContext, TaskResult
 
 logger = structlog.get_logger(__name__)
 
@@ -75,7 +78,7 @@ class BatchProcessorConfig(BaseModel):
     metrics_retention_days: int = Field(
         default=30, description="Metrics retention period"
     )
-    alert_notification_channels: List[str] = Field(
+    alert_notification_channels: list[str] = Field(
         default_factory=list, description="Alert channels"
     )
 
@@ -512,8 +515,8 @@ class BatchProcessor:
 
     # Built-in task implementations
     async def data_ingestion_task(
-        self, context: Dict[str, Any], **kwargs
-    ) -> Dict[str, Any]:
+        self, context: dict[str, Any], **kwargs
+    ) -> dict[str, Any]:
         """Data ingestion task implementation."""
         source_type = kwargs.get("source_type", "database")
         batch_size = kwargs.get("batch_size", 1000)
@@ -531,13 +534,13 @@ class BatchProcessor:
         return {
             "records_ingested": ingested_records,
             "source_type": source_type,
-            "ingestion_timestamp": datetime.now(timezone.utc).isoformat(),
+            "ingestion_timestamp": datetime.now(UTC).isoformat(),
             "status": "success",
         }
 
     async def data_validation_task(
-        self, context: Dict[str, Any], **kwargs
-    ) -> Dict[str, Any]:
+        self, context: dict[str, Any], **kwargs
+    ) -> dict[str, Any]:
         """Data validation task implementation."""
         validation_rules = kwargs.get("validation_rules", "standard")
         upstream_results = kwargs.get("upstream_results", {})
@@ -569,8 +572,8 @@ class BatchProcessor:
         }
 
     async def data_transformation_task(
-        self, context: Dict[str, Any], **kwargs
-    ) -> Dict[str, Any]:
+        self, context: dict[str, Any], **kwargs
+    ) -> dict[str, Any]:
         """Data transformation task implementation."""
         transformation_type = kwargs.get("transformation_type", "standardize")
         upstream_results = kwargs.get("upstream_results", {})
@@ -592,13 +595,13 @@ class BatchProcessor:
         return {
             "records_transformed": transformed_records,
             "transformation_type": transformation_type,
-            "transformation_timestamp": datetime.now(timezone.utc).isoformat(),
+            "transformation_timestamp": datetime.now(UTC).isoformat(),
             "status": "success",
         }
 
     async def data_quality_check_task(
-        self, context: Dict[str, Any], **kwargs
-    ) -> Dict[str, Any]:
+        self, context: dict[str, Any], **kwargs
+    ) -> dict[str, Any]:
         """Data quality check task implementation."""
         quality_threshold = kwargs.get("quality_threshold", 0.95)
         upstream_results = kwargs.get("upstream_results", {})
@@ -627,8 +630,8 @@ class BatchProcessor:
         }
 
     async def model_training_task(
-        self, context: Dict[str, Any], **kwargs
-    ) -> Dict[str, Any]:
+        self, context: dict[str, Any], **kwargs
+    ) -> dict[str, Any]:
         """Model training task implementation."""
         model_type = kwargs.get("model_type", "classification")
         hyperparameters = kwargs.get("hyperparameters", "auto")
@@ -649,8 +652,8 @@ class BatchProcessor:
         }
 
     async def model_inference_task(
-        self, context: Dict[str, Any], **kwargs
-    ) -> Dict[str, Any]:
+        self, context: dict[str, Any], **kwargs
+    ) -> dict[str, Any]:
         """Model inference task implementation."""
         logger.info("Starting model inference")
 
@@ -659,13 +662,13 @@ class BatchProcessor:
 
         return {
             "predictions_generated": 1000,
-            "inference_timestamp": datetime.now(timezone.utc).isoformat(),
+            "inference_timestamp": datetime.now(UTC).isoformat(),
             "status": "success",
         }
 
     async def model_evaluation_task(
-        self, context: Dict[str, Any], **kwargs
-    ) -> Dict[str, Any]:
+        self, context: dict[str, Any], **kwargs
+    ) -> dict[str, Any]:
         """Model evaluation task implementation."""
         evaluation_metrics = kwargs.get("evaluation_metrics", ["accuracy"])
         upstream_results = kwargs.get("upstream_results", {})
@@ -692,8 +695,8 @@ class BatchProcessor:
         }
 
     async def generate_report_task(
-        self, context: Dict[str, Any], **kwargs
-    ) -> Dict[str, Any]:
+        self, context: dict[str, Any], **kwargs
+    ) -> dict[str, Any]:
         """Report generation task implementation."""
         report_type = kwargs.get("report_type", "summary")
 
@@ -706,13 +709,13 @@ class BatchProcessor:
             "report_type": report_type,
             "report_id": f"report_{datetime.now().strftime('%Y%m%d_%H%M%S')}",
             "report_generated": True,
-            "generation_timestamp": datetime.now(timezone.utc).isoformat(),
+            "generation_timestamp": datetime.now(UTC).isoformat(),
             "status": "success",
         }
 
     async def send_notification_task(
-        self, context: Dict[str, Any], **kwargs
-    ) -> Dict[str, Any]:
+        self, context: dict[str, Any], **kwargs
+    ) -> dict[str, Any]:
         """Notification task implementation."""
         notification_type = kwargs.get("notification_type", "general")
         recipients = kwargs.get("recipients", [])
@@ -727,13 +730,13 @@ class BatchProcessor:
         return {
             "notification_type": notification_type,
             "recipients": recipients,
-            "sent_timestamp": datetime.now(timezone.utc).isoformat(),
+            "sent_timestamp": datetime.now(UTC).isoformat(),
             "status": "success",
         }
 
     async def data_export_task(
-        self, context: Dict[str, Any], **kwargs
-    ) -> Dict[str, Any]:
+        self, context: dict[str, Any], **kwargs
+    ) -> dict[str, Any]:
         """Data export task implementation."""
         export_type = kwargs.get("export_type", "csv")
         destination = kwargs.get("destination", "filesystem")
@@ -747,11 +750,11 @@ class BatchProcessor:
             "export_type": export_type,
             "destination": destination,
             "exported_records": 1000,
-            "export_timestamp": datetime.now(timezone.utc).isoformat(),
+            "export_timestamp": datetime.now(UTC).isoformat(),
             "status": "success",
         }
 
-    async def cleanup_task(self, context: Dict[str, Any], **kwargs) -> Dict[str, Any]:
+    async def cleanup_task(self, context: dict[str, Any], **kwargs) -> dict[str, Any]:
         """Cleanup task implementation."""
         logger.info("Starting cleanup")
 
@@ -761,7 +764,7 @@ class BatchProcessor:
         return {
             "cleaned_files": 5,
             "freed_space_mb": 1024,
-            "cleanup_timestamp": datetime.now(timezone.utc).isoformat(),
+            "cleanup_timestamp": datetime.now(UTC).isoformat(),
             "status": "success",
         }
 

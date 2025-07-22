@@ -3,13 +3,13 @@
 import asyncio
 import re
 from abc import ABC, abstractmethod
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime, timedelta  # type: ignore[attr-defined]
 from enum import Enum
 from typing import Any
 
 import structlog
 from croniter import croniter
-from pydantic import BaseModel, Field, validator
+from pydantic import BaseModel, Field, ValidationInfo, field_validator
 
 logger = structlog.get_logger(__name__)
 
@@ -391,10 +391,11 @@ class TriggerConfig(BaseModel):
         default_factory=dict, description="Workflow parameters"
     )
 
-    @validator("cron_expression")
-    def validate_cron(cls, v: str | None, values: dict[str, Any]) -> str | None:  # noqa: N805
+    @field_validator("cron_expression")
+    @classmethod
+    def validate_cron(cls, v: str | None, info: ValidationInfo) -> str | None:
         """Validate cron expression if trigger type is cron."""
-        if values.get("trigger_type") == TriggerType.CRON:
+        if info.data.get("trigger_type") == TriggerType.CRON:
             if not v:
                 raise ValueError("Cron expression required for cron trigger")
             try:
@@ -403,12 +404,13 @@ class TriggerConfig(BaseModel):
                 raise ValueError(f"Invalid cron expression: {e}")
         return v
 
-    @validator("interval_seconds")
+    @field_validator("interval_seconds")
+    @classmethod
     def validate_interval(
-        cls, v: int | None, values: dict[str, Any]  # noqa: N805
+        cls, v: int | None, info: ValidationInfo
     ) -> int | None:
         """Validate interval for interval trigger."""
-        if values.get("trigger_type") == TriggerType.INTERVAL:
+        if info.data.get("trigger_type") == TriggerType.INTERVAL:
             if not v or v <= 0:
                 raise ValueError(
                     "Positive interval_seconds required for interval trigger"
@@ -417,22 +419,24 @@ class TriggerConfig(BaseModel):
                 raise ValueError("Minimum interval is 60 seconds")
         return v
 
-    @validator("event_type")
+    @field_validator("event_type")
+    @classmethod
     def validate_event_type(
-        cls, v: str | None, values: dict[str, Any]  # noqa: N805
+        cls, v: str | None, info: ValidationInfo
     ) -> str | None:
         """Validate event type for event trigger."""
-        if values.get("trigger_type") == TriggerType.EVENT:
+        if info.data.get("trigger_type") == TriggerType.EVENT:
             if not v:
                 raise ValueError("Event type required for event trigger")
         return v
 
-    @validator("webhook_path")
+    @field_validator("webhook_path")
+    @classmethod
     def validate_webhook_path(
-        cls, v: str | None, values: dict[str, Any]  # noqa: N805
+        cls, v: str | None, info: ValidationInfo
     ) -> str | None:
         """Validate webhook path for webhook trigger."""
-        if values.get("trigger_type") == TriggerType.WEBHOOK:
+        if info.data.get("trigger_type") == TriggerType.WEBHOOK:
             if not v:
                 raise ValueError("Webhook path required for webhook trigger")
             if not v.startswith("/"):

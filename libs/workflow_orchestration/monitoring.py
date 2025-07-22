@@ -1,6 +1,6 @@
 """Workflow monitoring and metrics collection."""
 
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime, timedelta  # type: ignore[attr-defined]
 from typing import Any
 
 import structlog

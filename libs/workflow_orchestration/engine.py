@@ -4,7 +4,7 @@ import asyncio
 import uuid
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
-from datetime import UTC, datetime
+from datetime import UTC, datetime  # type: ignore[attr-defined]
 from typing import Any
 
 import structlog
@@ -49,25 +49,30 @@ class ResourcePool:
             )
 
     async def allocate(self, task_name: str, cpu: float, memory_mb: int) -> bool:
-        """Allocate resources for task."""
+        """Atomically allocate resources for task."""
         async with self._lock:
-            if await self.can_allocate(task_name, cpu, memory_mb):
-                self.allocated_cpu += cpu
-                self.allocated_memory_mb += memory_mb
-                self.running_tasks += 1
-                self.task_allocations[task_name] = {"cpu": cpu, "memory_mb": memory_mb}
+            # Check if resources can be allocated (inline to avoid deadlock)
+            if (self.running_tasks >= self.max_concurrent or
+                self.allocated_cpu + cpu > self.max_cpu or
+                self.allocated_memory_mb + memory_mb > self.max_memory_mb):
+                return False
 
-                logger.info(
-                    "Resources allocated",
-                    task_name=task_name,
-                    cpu=cpu,
-                    memory_mb=memory_mb,
-                    total_cpu=self.allocated_cpu,
-                    total_memory=self.allocated_memory_mb,
-                    running_tasks=self.running_tasks,
-                )
-                return True
-            return False
+            # Allocate resources atomically
+            self.allocated_cpu += cpu
+            self.allocated_memory_mb += memory_mb
+            self.running_tasks += 1
+            self.task_allocations[task_name] = {"cpu": cpu, "memory_mb": memory_mb}
+
+            logger.info(
+                "Resources allocated",
+                task_name=task_name,
+                cpu=cpu,
+                memory_mb=memory_mb,
+                total_cpu=self.allocated_cpu,
+                total_memory=self.allocated_memory_mb,
+                running_tasks=self.running_tasks,
+            )
+            return True
 
     async def deallocate(self, task_name: str) -> None:
         """Deallocate resources for task."""
@@ -102,18 +107,91 @@ class ResourcePool:
         }
 
 
+class FunctionValidator:
+    """Validates functions for secure execution."""
+
+    # Allowed function attributes for security
+    ALLOWED_MODULES = {
+        "builtins", "math", "json", "datetime", "uuid", "asyncio",
+        "libs.workflow_orchestration", "libs.data_processing",
+        "libs.analytics_core", "services", "tests", "__main__"
+    }
+
+    DANGEROUS_ATTRIBUTES = {
+        "__import__", "eval", "exec", "compile", "open", "file",
+        "input", "raw_input", "reload", "__builtins__", "globals", "locals",
+        "vars", "dir", "hasattr", "getattr", "setattr", "delattr"
+    }
+
+    @classmethod
+    def validate_function(cls, func: Callable, name: str) -> bool:
+        """Validate that a function is safe for execution."""
+        # Check if function has dangerous attributes
+        func_code = getattr(func, '__code__', None)
+        if func_code:
+            # Check for dangerous names in code
+            for dangerous_name in cls.DANGEROUS_ATTRIBUTES:
+                if dangerous_name in func_code.co_names:
+                    logger.error(
+                        "Function uses dangerous attribute",
+                        function_name=name,
+                        dangerous_attribute=dangerous_name
+                    )
+                    return False
+
+        # Check function module
+        module_name = getattr(func, '__module__', '')
+        if module_name and not any(module_name.startswith(allowed) for allowed in cls.ALLOWED_MODULES):
+            logger.error(
+                "Function from unauthorized module",
+                function_name=name,
+                module_name=module_name
+            )
+            return False
+
+        return True
+
+    @classmethod
+    def sanitize_parameters(cls, parameters: dict[str, Any]) -> dict[str, Any]:
+        """Sanitize function parameters to prevent code injection."""
+        sanitized = {}
+
+        for key, value in parameters.items():
+            # Validate parameter key
+            if not isinstance(key, str) or not key.replace('_', '').isalnum():
+                logger.warning("Invalid parameter key skipped", key=key)
+                continue
+
+            # Sanitize parameter value
+            if isinstance(value, str):
+                # Remove potentially dangerous strings
+                if any(danger in value.lower() for danger in ['__import__', 'eval(', 'exec(', 'open(']):
+                    logger.warning("Dangerous string parameter sanitized", key=key)
+                    value = value.replace('__import__', '').replace('eval(', '').replace('exec(', '').replace('open(', '')
+
+            sanitized[key] = value
+
+        return sanitized
+
+
 class WorkflowExecutor:
-    """Executes individual workflow tasks."""
+    """Executes individual workflow tasks with security validation."""
 
     def __init__(self, celery_app: Celery | None = None):
         self.celery_app = celery_app
         self.function_registry: dict[str, Callable] = {}
+        self.validated_functions: set[str] = set()  # Cache for validated functions
         self.thread_pool = ThreadPoolExecutor(max_workers=10)
 
     def register_function(self, name: str, func: Callable) -> None:
-        """Register function for task execution."""
+        """Register function for task execution with security validation."""
+        # Validate function security
+        if not FunctionValidator.validate_function(func, name):
+            raise ValueError(f"Function '{name}' failed security validation")
+
         self.function_registry[name] = func
-        logger.info("Function registered", function_name=name)
+        self.validated_functions.add(name)
+        logger.info("Function registered and validated", function_name=name)
 
     def unregister_function(self, name: str) -> None:
         """Unregister function."""
@@ -145,16 +223,25 @@ class WorkflowExecutor:
             task.status = TaskStatus.RUNNING
             task.start_time = task_start
 
-            # Get function to execute
+            # Get function to execute with security check
             func = self.function_registry.get(task.config.function_name)
             if not func:
                 raise ValueError(
                     f"Function '{task.config.function_name}' not found in registry"
                 )
 
-            # Prepare function parameters
+            # Ensure function is validated (double-check for security)
+            if task.config.function_name not in self.validated_functions:
+                raise ValueError(
+                    f"Function '{task.config.function_name}' not validated for execution"
+                )
+
+            # Sanitize user parameters
+            sanitized_params = FunctionValidator.sanitize_parameters(task.config.parameters)
+
+            # Prepare function parameters with sanitized inputs
             func_kwargs = {
-                **task.config.parameters,
+                **sanitized_params,  # Use sanitized parameters
                 "context": context.model_dump(),
                 "task_config": task.config.model_dump(),
                 "upstream_results": context.get_upstream_results(
@@ -162,11 +249,10 @@ class WorkflowExecutor:
                 ),
             }
 
-            # Execute with retry logic
-            result_data = await retry_executor.execute_with_retry(
+            # Execute with retry logic and get retry count
+            result_data, retry_count = await retry_executor.execute_with_retry(
                 func,
                 task_name=task.config.name,
-                context=context.model_dump(),
                 **func_kwargs,
             )
 
@@ -183,7 +269,7 @@ class WorkflowExecutor:
                 else {"result": result_data},
                 start_time=task_start,
                 end_time=task.end_time,
-                retry_count=0,  # TODO: Get from retry executor
+                retry_count=retry_count,  # Now properly tracked from retry executor
                 metadata={
                     "task_type": task.config.task_type.value,
                     "function_name": task.config.function_name,
@@ -213,7 +299,7 @@ class WorkflowExecutor:
                 error_message=str(error),
                 start_time=task_start,
                 end_time=task.end_time,
-                retry_count=0,  # TODO: Get from retry executor
+                retry_count=getattr(error, 'retry_count', 0),  # Get retry count from exception
                 metadata={
                     "task_type": task.config.task_type.value,
                     "function_name": task.config.function_name,
@@ -256,6 +342,12 @@ class WorkflowEngine:
         # Running workflow management
         self.running_workflows: dict[str, asyncio.Task] = {}
         self.workflow_dags: dict[str, DAG] = {}
+
+        # Memory management for completed workflows
+        self.completed_workflows: dict[str, datetime] = {}  # execution_id -> completion_time
+        self.max_completed_workflows = 1000  # Keep at most 1000 completed workflows
+        self.cleanup_interval = 3600  # Cleanup every hour
+        self.last_cleanup = datetime.now(UTC)
 
         logger.info(
             "Workflow engine initialized",
@@ -379,22 +471,14 @@ class WorkflowEngine:
                 for task_name in ready_tasks:
                     task = dag.tasks[task_name]
 
-                    # Check resource availability
-                    can_allocate = await self.resource_pool.can_allocate(
+                    # Atomically allocate resources (no need to check first)
+                    allocated = await self.resource_pool.allocate(
                         task_name,
                         task.config.resources.cpu,
                         task.config.resources.memory_mb,
                     )
 
-                    if can_allocate:
-                        # Allocate resources
-                        allocated = await self.resource_pool.allocate(
-                            task_name,
-                            task.config.resources.cpu,
-                            task.config.resources.memory_mb,
-                        )
-
-                        if allocated:
+                    if allocated:
                             # Start task execution
                             task_execution = asyncio.create_task(
                                 self._execute_task_with_cleanup(
@@ -503,9 +587,15 @@ class WorkflowEngine:
             )
 
         finally:
-            # Clean up
+            # Clean up running workflow and track completion
             if execution.execution_id in self.running_workflows:
                 del self.running_workflows[execution.execution_id]
+
+            # Track completed workflow for memory management
+            self.completed_workflows[execution.execution_id] = datetime.now(UTC)
+
+            # Perform periodic cleanup if needed
+            await self._cleanup_completed_workflows_if_needed()
 
     async def _execute_task_with_cleanup(
         self, task: Task, context: ExecutionContext, task_name: str
@@ -555,8 +645,54 @@ class WorkflowEngine:
         """Get current resource utilization."""
         return self.resource_pool.get_utilization()
 
+    async def _cleanup_completed_workflows_if_needed(self) -> None:
+        """Clean up old completed workflows to prevent memory leaks."""
+        current_time = datetime.now(UTC)
+        time_since_cleanup = (current_time - self.last_cleanup).total_seconds()
+
+        # Only cleanup if interval has passed or we have too many completed workflows
+        if (time_since_cleanup >= self.cleanup_interval or
+            len(self.completed_workflows) > self.max_completed_workflows):
+            await self._cleanup_completed_workflows()
+            self.last_cleanup = current_time
+
+    async def _cleanup_completed_workflows(self) -> None:
+        """Clean up old completed workflow references."""
+        current_time = datetime.now(UTC)
+        cleanup_age = 24 * 3600  # Remove workflows older than 24 hours
+
+        # Find old workflows to remove
+        old_workflows = [
+            execution_id for execution_id, completion_time in self.completed_workflows.items()
+            if (current_time - completion_time).total_seconds() > cleanup_age
+        ]
+
+        # If we still have too many, remove oldest ones
+        if len(self.completed_workflows) - len(old_workflows) > self.max_completed_workflows:
+            sorted_workflows = sorted(
+                self.completed_workflows.items(),
+                key=lambda x: x[1]  # Sort by completion time
+            )
+            # Remove oldest workflows beyond the limit
+            excess_count = len(self.completed_workflows) - len(old_workflows) - self.max_completed_workflows
+            old_workflows.extend([wf_id for wf_id, _ in sorted_workflows[:excess_count]])
+
+        # Remove old workflows from tracking
+        for execution_id in old_workflows:
+            self.completed_workflows.pop(execution_id, None)
+            # Also clean up from workflow state if it exists
+            if execution_id in self.workflow_state.executions:
+                del self.workflow_state.executions[execution_id]
+
+        if old_workflows:
+            logger.info(
+                "Cleaned up old workflow references",
+                cleaned_count=len(old_workflows),
+                remaining_count=len(self.completed_workflows)
+            )
+
     async def shutdown(self) -> None:
-        """Shutdown workflow engine."""
+        """Shutdown workflow engine and clean up all resources."""
         # Cancel all running workflows
         for execution_id, workflow_task in self.running_workflows.items():
             workflow_task.cancel()
@@ -568,7 +704,12 @@ class WorkflowEngine:
                 *self.running_workflows.values(), return_exceptions=True
             )
 
+        # Clean up all workflow references
+        self.running_workflows.clear()
+        self.completed_workflows.clear()
+        self.workflow_dags.clear()
+
         # Shutdown executor
         self.executor.shutdown()
 
-        logger.info("Workflow engine shutdown completed")
+        logger.info("Workflow engine shutdown completed with full cleanup")

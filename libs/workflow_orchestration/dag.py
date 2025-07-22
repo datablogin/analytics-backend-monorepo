@@ -2,12 +2,12 @@
 
 import uuid
 from collections.abc import Callable
-from datetime import UTC, datetime
+from datetime import UTC, datetime  # type: ignore[attr-defined]
 from enum import Enum
 from typing import Any
 
 import structlog
-from pydantic import BaseModel, Field, validator
+from pydantic import BaseModel, Field, field_validator
 
 logger = structlog.get_logger(__name__)
 
@@ -65,8 +65,9 @@ class TaskConfig(BaseModel):
     owner: str | None = Field(default=None, description="Task owner")
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
-    @validator("name")
-    def validate_name(cls, v: str) -> str:  # noqa: N805
+    @field_validator("name")
+    @classmethod
+    def validate_name(cls, v: str) -> str:
         """Validate task name format."""
         if not v or not v.strip():
             raise ValueError("Task name cannot be empty")
@@ -175,8 +176,9 @@ class WorkflowDefinition(BaseModel):
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
-    @validator("name")
-    def validate_name(cls, v: str) -> str:  # noqa: N805
+    @field_validator("name")
+    @classmethod
+    def validate_name(cls, v: str) -> str:
         """Validate workflow name format."""
         if not v or not v.strip():
             raise ValueError("Workflow name cannot be empty")

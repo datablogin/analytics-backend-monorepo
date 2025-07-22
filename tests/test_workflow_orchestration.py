@@ -300,9 +300,10 @@ class TestRetryMechanism:
                 raise ConnectionError("Connection failed")
             return "success"
 
-        result = await executor.execute_with_retry(mock_function, task_name="test_task")
+        result, retry_count = await executor.execute_with_retry(mock_function, task_name="test_task")
 
         assert result == "success"
+        assert retry_count == 2  # Failed twice, succeeded on third attempt
         assert call_count == 3  # Failed twice, succeeded on third attempt
 
 

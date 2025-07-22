@@ -1,6 +1,6 @@
 """Workflow state management and execution context."""
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime  # type: ignore[attr-defined]
 from enum import Enum
 from typing import Any
 
@@ -91,10 +91,10 @@ class ExecutionContext(BaseModel):
             status=result.status,
         )
 
-    def get_upstream_results(self, upstream_tasks: list[str]) -> dict[str, TaskResult]:
+    def get_upstream_results(self, upstream_tasks: list[str]) -> dict[str, dict[str, Any]]:
         """Get results from specified upstream tasks."""
         return {
-            task_name: result
+            task_name: result.model_dump()
             for task_name, result in self.task_results.items()
             if task_name in upstream_tasks
         }
