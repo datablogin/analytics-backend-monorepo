@@ -220,7 +220,10 @@ class ModelRegistry:
     ) -> None:
         """Validate model signature with type checking."""
         if model_signature is None:
-            raise ValueError("Model signature is required but not provided")
+            logger.warning(
+                "Model signature not provided - signature validation will be skipped"
+            )
+            return
 
         try:
             # Try to import MLflow's signature validation
