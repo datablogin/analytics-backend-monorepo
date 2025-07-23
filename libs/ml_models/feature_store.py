@@ -17,7 +17,7 @@ from sqlalchemy import (
     String,
     Text,
 )
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.ext.declarative import DeclarativeMeta, declarative_base
 
 from ..data_processing.lineage import DataLineageTracker
@@ -526,7 +526,7 @@ class FeatureStore:
                     # Add models to session
                     for model in feature_models:
                         session.add(model)
-                    
+
                     await session.commit()
                     written_count += len(batch)
 
@@ -751,7 +751,6 @@ class FeatureStore:
         try:
             # Use AST parsing for safer code execution
             import ast
-            import operator
 
             # Parse the transformation code
             try:

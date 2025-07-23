@@ -1,6 +1,5 @@
 """Comprehensive test suite for feature store functionality."""
 
-import json
 import tempfile
 from datetime import datetime, timedelta, timezone
 from unittest.mock import patch
@@ -656,4 +655,3 @@ result = result[['age_normalized', 'income_log']]
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
-
