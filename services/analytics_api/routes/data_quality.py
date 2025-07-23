@@ -297,7 +297,7 @@ async def get_data_profiles(
 async def get_asset_lineage(
     request: Request,
     asset_name: str,
-    direction: str = Query("both", regex="^(upstream|downstream|both)$"),
+    direction: str = Query("both", pattern="^(upstream|downstream|both)$"),
     max_depth: int = Query(5, ge=1, le=10),
     current_user=Depends(get_current_user),
 ) -> StandardResponse[dict]:
@@ -492,7 +492,7 @@ async def get_expectation_suites(
 )
 async def get_quality_alerts(
     request: Request,
-    severity: str | None = Query(None, regex="^(low|medium|high|critical)$"),
+    severity: str | None = Query(None, pattern="^(low|medium|high|critical)$"),
     limit: int = Query(20, ge=1, le=100),
     current_user=Depends(get_current_user),
 ) -> StandardResponse[list[dict]]:

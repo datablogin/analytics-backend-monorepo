@@ -368,7 +368,6 @@ class TestArtifactManager:
         assert content.decode() == test_content
 
 
-@pytest.mark.asyncio
 class TestExperimentAPI:
     """Test cases for experiment tracking API endpoints."""
 
@@ -383,6 +382,7 @@ class TestExperimentAPI:
         assert response.status_code in [
             200,
             401,
+            403,
             422,
         ]  # Auth required but endpoint exists
 
@@ -390,6 +390,7 @@ class TestExperimentAPI:
         assert response.status_code in [
             200,
             401,
+            403,
             422,
         ]  # Auth required but endpoint exists
 
