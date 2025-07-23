@@ -115,7 +115,7 @@ async def update_role(
 
     role.name = role_data.name
     role.description = role_data.description
-    role.permissions = role_data.permissions
+    role.permissions = json.dumps(role_data.permissions)
 
     await db.commit()
     await db.refresh(role)

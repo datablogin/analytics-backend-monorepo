@@ -5,7 +5,7 @@ from typing import Any
 
 from sqlalchemy import MetaData, create_engine, text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
-from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.orm import declarative_base
 from sqlalchemy.pool import StaticPool
 
 # SQLAlchemy 2.0 style declarative base
