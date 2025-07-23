@@ -9,7 +9,12 @@ from alembic import context
 from libs.analytics_core.database import Base
 from libs.analytics_core.models import (
     AuditLog,  # noqa: F401
+    Experiment,  # noqa: F401
+    ExperimentRun,  # noqa: F401
+    Metric,  # noqa: F401
+    Param,  # noqa: F401
     Role,  # noqa: F401
+    RunTag,  # noqa: F401
     User,  # noqa: F401
     UserRole,  # noqa: F401
 )
