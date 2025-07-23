@@ -2,7 +2,7 @@
 
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text, func
+from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .database import Base
@@ -70,6 +70,10 @@ class UserRole(BaseModel):
     """Many-to-many relationship between users and roles."""
 
     __tablename__ = "user_roles"
+    __table_args__ = (
+        Index("ix_user_roles_user_id_role_id", "user_id", "role_id"),
+        Index("ix_user_roles_role_id_user_id", "role_id", "user_id"),
+    )
 
     user_id: Mapped[int] = mapped_column(
         Integer, ForeignKey("users.id"), nullable=False, index=True
