@@ -23,6 +23,38 @@ from .models import (
     FeatureValueWrite,
 )
 
+# Security constants for JSON parsing
+MAX_JSON_SIZE = 1024 * 1024  # 1MB limit for JSON strings
+MAX_JSON_DEPTH = 20  # Maximum nesting depth
+
+
+def _safe_json_loads(json_string: str, max_size: int = MAX_JSON_SIZE) -> Any:
+    """Safely parse JSON with size and depth validation."""
+    if len(json_string) > max_size:
+        raise ValueError(
+            f"JSON string too large: {len(json_string)} bytes (max: {max_size})"
+        )
+
+    try:
+        return json.loads(json_string)
+    except json.JSONDecodeError as e:
+        raise ValueError(f"Invalid JSON format: {str(e)}")
+
+
+def _validate_json_depth(
+    obj: Any, current_depth: int = 0, max_depth: int = MAX_JSON_DEPTH
+) -> None:
+    """Validate JSON object depth to prevent deeply nested structures."""
+    if current_depth > max_depth:
+        raise ValueError(f"JSON nesting too deep: {current_depth} (max: {max_depth})")
+
+    if isinstance(obj, dict):
+        for value in obj.values():
+            _validate_json_depth(value, current_depth + 1, max_depth)
+    elif isinstance(obj, list):
+        for item in obj:
+            _validate_json_depth(item, current_depth + 1, max_depth)
+
 
 class FeatureStoreService:
     """Core feature store service for managing features and values."""
@@ -32,45 +64,61 @@ class FeatureStoreService:
         self.db_manager = db_manager
 
     async def create_feature(
-        self, feature_data: FeatureDefinitionCreate
+        self, feature_data: FeatureDefinitionCreate, session: AsyncSession | None = None
     ) -> FeatureDefinitionResponse:
         """Create a new feature definition."""
+        if session:
+            return await self._create_feature_with_session(session, feature_data)
+
         async with self.db_manager.get_session() as session:  # type: ignore
-            # Convert Pydantic model to dict and handle JSON fields
-            feature_dict = feature_data.model_dump()
+            return await self._create_feature_with_session(session, feature_data)
 
-            # Convert JSON fields to strings
-            if feature_dict.get("default_value") is not None:
-                feature_dict["default_value"] = json.dumps(
-                    feature_dict["default_value"]
-                )
-            if feature_dict.get("validation_rules") is not None:
-                feature_dict["validation_rules"] = json.dumps(
-                    feature_dict["validation_rules"]
-                )
-            if feature_dict.get("tags") is not None:
-                feature_dict["tags"] = json.dumps(feature_dict["tags"])
+    async def _create_feature_with_session(
+        self, session: AsyncSession, feature_data: FeatureDefinitionCreate
+    ) -> FeatureDefinitionResponse:
+        """Internal method to create feature with existing session."""
+        # Convert Pydantic model to dict and handle JSON fields
+        feature_dict = feature_data.model_dump()
 
-            feature = Feature(**feature_dict)
-            session.add(feature)
-            await session.commit()
-            await session.refresh(feature)
+        # Convert JSON fields to strings
+        if feature_dict.get("default_value") is not None:
+            feature_dict["default_value"] = json.dumps(feature_dict["default_value"])
+        if feature_dict.get("validation_rules") is not None:
+            feature_dict["validation_rules"] = json.dumps(
+                feature_dict["validation_rules"]
+            )
+        if feature_dict.get("tags") is not None:
+            feature_dict["tags"] = json.dumps(feature_dict["tags"])
 
-            return await self._feature_to_response(feature)
+        feature = Feature(**feature_dict)
+        session.add(feature)
+        await session.commit()
+        await session.refresh(feature)
+
+        return await self._feature_to_response(feature)
 
     async def get_feature(
-        self, feature_name: str
+        self, feature_name: str, session: AsyncSession | None = None
     ) -> FeatureDefinitionResponse | None:
         """Get a feature definition by name."""
+        if session:
+            return await self._get_feature_with_session(session, feature_name)
+
         async with self.db_manager.get_session() as session:  # type: ignore
-            stmt = select(Feature).where(Feature.name == feature_name)
-            result = await session.execute(stmt)
-            feature = result.scalar_one_or_none()
+            return await self._get_feature_with_session(session, feature_name)
 
-            if feature is None:
-                return None
+    async def _get_feature_with_session(
+        self, session: AsyncSession, feature_name: str
+    ) -> FeatureDefinitionResponse | None:
+        """Internal method to get feature with existing session."""
+        stmt = select(Feature).where(Feature.name == feature_name)
+        result = await session.execute(stmt)
+        feature = result.scalar_one_or_none()
 
-            return await self._feature_to_response(feature)
+        if feature is None:
+            return None
+
+        return await self._feature_to_response(feature)
 
     async def list_features(
         self,
@@ -78,23 +126,42 @@ class FeatureStoreService:
         status: FeatureStatus | None = None,
         limit: int = 100,
         offset: int = 0,
+        session: AsyncSession | None = None,
     ) -> list[FeatureDefinitionResponse]:
         """List features with optional filtering."""
+        if session:
+            return await self._list_features_with_session(
+                session, feature_group, status, limit, offset
+            )
+
         async with self.db_manager.get_session() as session:  # type: ignore
-            stmt = select(Feature)
+            return await self._list_features_with_session(
+                session, feature_group, status, limit, offset
+            )
 
-            # Apply filters
-            if feature_group:
-                stmt = stmt.where(Feature.feature_group == feature_group)
-            if status:
-                stmt = stmt.where(Feature.status == status)
+    async def _list_features_with_session(
+        self,
+        session: AsyncSession,
+        feature_group: str | None = None,
+        status: FeatureStatus | None = None,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> list[FeatureDefinitionResponse]:
+        """Internal method to list features with existing session."""
+        stmt = select(Feature)
 
-            stmt = stmt.offset(offset).limit(limit).order_by(Feature.created_at.desc())
+        # Apply filters
+        if feature_group:
+            stmt = stmt.where(Feature.feature_group == feature_group)
+        if status:
+            stmt = stmt.where(Feature.status == status)
 
-            result = await session.execute(stmt)
-            features = result.scalars().all()
+        stmt = stmt.offset(offset).limit(limit).order_by(Feature.created_at.desc())
 
-            return [await self._feature_to_response(feature) for feature in features]
+        result = await session.execute(stmt)
+        features = result.scalars().all()
+
+        return [await self._feature_to_response(feature) for feature in features]
 
     async def update_feature(
         self, feature_name: str, update_data: FeatureDefinitionUpdate
@@ -206,8 +273,7 @@ class FeatureStoreService:
                 )
                 if not validation_result.is_valid:
                     raise ValueError(
-                        f"Invalid value for {value_data.feature_name}: "
-                        f"{', '.join(validation_result.errors)}"
+                        f"Invalid value for {value_data.feature_name}: {', '.join(validation_result.errors)}"
                     )
 
                 # Create feature value
@@ -224,10 +290,15 @@ class FeatureStoreService:
 
             await session.commit()
 
-            # Refresh all and convert to responses
+            # Bulk refresh using select query for better performance
+            feature_value_ids = [fv.id for fv in responses]
+            stmt = select(FeatureValue).where(FeatureValue.id.in_(feature_value_ids))
+            result = await session.execute(stmt)
+            refreshed_values = result.scalars().all()
+
+            # Convert to responses
             result_responses = []
-            for feature_value in responses:
-                await session.refresh(feature_value)
+            for feature_value in refreshed_values:
                 result_responses.append(
                     await self._feature_value_to_response(feature_value)
                 )
@@ -295,7 +366,13 @@ class FeatureStoreService:
                 if feature_name not in features:
                     feature = await self._get_feature_by_name(session, feature_name)
                     if feature and feature.default_value:
-                        features[feature_name] = json.loads(feature.default_value)
+                        try:
+                            parsed_value = _safe_json_loads(feature.default_value)
+                            _validate_json_depth(parsed_value)
+                            features[feature_name] = parsed_value
+                        except ValueError:
+                            # Fallback to None if JSON parsing fails
+                            features[feature_name] = None
                     else:
                         features[feature_name] = None
 
@@ -380,7 +457,8 @@ class FeatureStoreService:
         # Custom validation rules
         if feature.validation_rules:
             try:
-                rules = json.loads(feature.validation_rules)
+                rules = _safe_json_loads(feature.validation_rules)
+                _validate_json_depth(rules)
                 # Add custom validation logic here based on rules
                 # For now, just check basic constraints
                 if "min_value" in rules and isinstance(value, int | float):
@@ -410,26 +488,29 @@ class FeatureStoreService:
 
     async def _feature_to_response(self, feature: Feature) -> FeatureDefinitionResponse:
         """Convert Feature model to response model."""
-        # Parse JSON fields
+        # Parse JSON fields with security validation
         default_value = None
         if feature.default_value:
             try:
-                default_value = json.loads(feature.default_value)
-            except json.JSONDecodeError:
+                default_value = _safe_json_loads(feature.default_value)
+                _validate_json_depth(default_value)
+            except ValueError:
                 default_value = feature.default_value
 
         validation_rules = None
         if feature.validation_rules:
             try:
-                validation_rules = json.loads(feature.validation_rules)
-            except json.JSONDecodeError:
+                validation_rules = _safe_json_loads(feature.validation_rules)
+                _validate_json_depth(validation_rules)
+            except ValueError:
                 validation_rules = {}
 
         tags = None
         if feature.tags:
             try:
-                tags = json.loads(feature.tags)
-            except json.JSONDecodeError:
+                tags = _safe_json_loads(feature.tags)
+                _validate_json_depth(tags)
+            except ValueError:
                 tags = []
 
         return FeatureDefinitionResponse(
@@ -452,11 +533,12 @@ class FeatureStoreService:
         self, feature_value: FeatureValue
     ) -> FeatureValueResponse:
         """Convert FeatureValue model to response model."""
-        # Parse JSON value
+        # Parse JSON value with security validation
         value = None
         try:
-            value = json.loads(feature_value.value)
-        except json.JSONDecodeError:
+            value = _safe_json_loads(feature_value.value)
+            _validate_json_depth(value)
+        except ValueError:
             value = feature_value.value
 
         return FeatureValueResponse(

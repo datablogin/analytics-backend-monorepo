@@ -3,7 +3,6 @@
 import json
 import logging
 from datetime import datetime, timedelta
-from functools import cache
 from typing import Any
 
 import redis.asyncio as redis
@@ -25,6 +24,7 @@ class FeatureCache:
         self.redis_client: Redis | None = None
         self.default_ttl = default_ttl
         self.max_memory_size = max_memory_size
+        self._memory_cache_data: dict[str, dict[str, Any]] = {}
 
         # Initialize Redis if URL provided
         if redis_url:
@@ -86,9 +86,7 @@ class FeatureCache:
         # Fallback to in-memory cache
         self._set_memory_cache(cache_key, cache_data, ttl)
 
-    async def get_feature_definition(
-        self, feature_name: str
-    ) -> dict[str, Any] | None:
+    async def get_feature_definition(self, feature_name: str) -> dict[str, Any] | None:
         """Get cached feature definition."""
         cache_key = self._get_feature_definition_key(feature_name)
 
@@ -187,7 +185,7 @@ class FeatureCache:
                 start_time = datetime.utcnow()
                 await self.redis_client.ping()
                 latency = (datetime.utcnow() - start_time).total_seconds() * 1000
-                status["redis"]["available"] = True
+                status["redis"]["available"] = True  # type: ignore
                 status["redis"]["latency_ms"] = round(latency, 2)  # type: ignore
             except Exception as e:
                 logger.warning(f"Redis health check failed: {e}")
@@ -204,15 +202,10 @@ class FeatureCache:
         return f"feature_definition:{feature_name}"
 
     # In-memory cache implementation
-    @cache
-    def _get_memory_cache_instance(self):
-        """Get or create memory cache instance."""
-        return {}
-
     @property
     def _memory_cache(self) -> dict[str, dict[str, Any]]:
         """Get memory cache."""
-        return self._get_memory_cache_instance()
+        return self._memory_cache_data
 
     def _get_memory_cache(self, key: str) -> dict[str, Any] | None:
         """Get value from memory cache."""

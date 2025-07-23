@@ -103,9 +103,7 @@ class FeatureDefinitionCreate(BaseModel):
     )
     description: str | None = Field(None, description="Feature description")
     feature_type: FeatureType = Field(..., description="Feature data type")
-    default_value: Any | None = Field(
-        None, description="Default value for the feature"
-    )
+    default_value: Any | None = Field(None, description="Default value for the feature")
     validation_rules: dict[str, Any] | None = Field(
         None, description="Validation rules"
     )
@@ -118,9 +116,7 @@ class FeatureDefinitionUpdate(BaseModel):
 
     description: str | None = Field(None, description="Feature description")
     status: FeatureStatus | None = Field(None, description="Feature status")
-    default_value: Any | None = Field(
-        None, description="Default value for the feature"
-    )
+    default_value: Any | None = Field(None, description="Default value for the feature")
     validation_rules: dict[str, Any] | None = Field(
         None, description="Validation rules"
     )
@@ -177,9 +173,7 @@ class FeatureValueBatchWrite(BaseModel):
 class FeatureValueRead(BaseModel):
     """Model for reading feature values."""
 
-    feature_names: list[str] = Field(
-        description="Feature names to read", min_length=1
-    )
+    feature_names: list[str] = Field(description="Feature names to read", min_length=1)
     entity_ids: list[str] = Field(description="Entity identifiers", min_length=1)
     timestamp: datetime | None = Field(None, description="Point-in-time timestamp")
 
