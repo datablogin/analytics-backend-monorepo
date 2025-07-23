@@ -14,8 +14,8 @@ from libs.analytics_core.models import User
 from libs.ml_models import (
     ArtifactManager,
     ExperimentCreate,
-    MyExperimentTracker,
     MetricCreate,
+    MyExperimentTracker,
     ParamCreate,
     RunCreate,
 )

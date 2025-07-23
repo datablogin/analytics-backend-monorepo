@@ -21,8 +21,8 @@ from libs.api_common.response_models import APIMetadata, StandardResponse
 from libs.ml_models import (
     ExperimentCreate,
     ExperimentResponse,
-    MyExperimentTracker,
     MetricCreate,
+    MyExperimentTracker,
     ParamCreate,
     RunCreate,
     RunResponse,
