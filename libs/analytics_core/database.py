@@ -3,9 +3,9 @@
 from collections.abc import AsyncGenerator
 from typing import Any
 
-from sqlalchemy import MetaData, create_engine, text
+from sqlalchemy import MetaData, create_engine, event, text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
-from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.orm import declarative_base
 from sqlalchemy.pool import StaticPool
 
 # SQLAlchemy 2.0 style declarative base
@@ -23,6 +23,14 @@ NAMING_CONVENTION = {
 Base.metadata = MetaData(naming_convention=NAMING_CONVENTION)
 
 
+def _enable_sqlite_foreign_keys(dbapi_connection, connection_record):
+    """Enable foreign key enforcement for SQLite connections."""
+    if "sqlite" in str(dbapi_connection):
+        cursor = dbapi_connection.cursor()
+        cursor.execute("PRAGMA foreign_keys=ON")
+        cursor.close()
+
+
 class DatabaseManager:
     """Database connection and session management."""
 
@@ -37,14 +45,25 @@ class DatabaseManager:
         self.echo = echo
 
         # Create async engine
+        connect_args = {}
+        if "sqlite" in database_url:
+            connect_args = {
+                "check_same_thread": False,
+                "isolation_level": None,  # Enable autocommit mode for SQLite
+            }
+
         self.async_engine = create_async_engine(
             database_url,
             echo=echo,
             poolclass=StaticPool if "sqlite" in database_url else None,
-            connect_args={"check_same_thread": False}
-            if "sqlite" in database_url
-            else {},
+            connect_args=connect_args,
         )
+
+        # Enable foreign key enforcement for SQLite
+        if "sqlite" in database_url:
+            event.listen(
+                self.async_engine.sync_engine, "connect", _enable_sqlite_foreign_keys
+            )
 
         # Create async session factory
         self.async_session_factory = async_sessionmaker(
@@ -63,6 +82,10 @@ class DatabaseManager:
             poolclass=StaticPool if "sqlite" in sync_url else None,
             connect_args={"check_same_thread": False} if "sqlite" in sync_url else {},
         )
+
+        # Enable foreign key enforcement for SQLite
+        if "sqlite" in sync_url:
+            event.listen(self.sync_engine, "connect", _enable_sqlite_foreign_keys)
 
     async def get_session(self) -> AsyncGenerator[AsyncSession, None]:
         """Get async database session."""

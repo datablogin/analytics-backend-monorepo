@@ -5,12 +5,12 @@ import tempfile
 from unittest.mock import patch
 
 import pytest
-from sqlalchemy import text
+from sqlalchemy import select, text
 
 from alembic import command
 from alembic.config import Config
 from libs.analytics_core.database import initialize_database
-from libs.analytics_core.models import AuditLog, Role, User
+from libs.analytics_core.models import AuditLog, Role, User, UserRole
 
 
 @pytest.fixture
@@ -252,3 +252,111 @@ class TestMigrationCompliance:
             # Simulate continuing operations during migration
             health = await db_manager.health_check()
             assert health is True
+
+
+class TestForeignKeyConstraints:
+    """Test foreign key constraint functionality."""
+
+    @pytest.mark.asyncio
+    async def test_foreign_key_enforcement(self, db_manager):
+        """Test that foreign key constraints are properly enforced."""
+        await db_manager.create_all_tables()
+
+        async for session in db_manager.get_session():
+            # Create a user and role first
+            user = User(
+                email="fk_test@example.com",
+                username="fktest",
+                hashed_password="password",
+                is_active=True,
+            )
+            role = Role(
+                name="test_role",
+                description="Test role",
+                permissions='["read"]',
+            )
+            session.add(user)
+            session.add(role)
+            await session.flush()
+
+            # Test valid UserRole creation
+            user_role = UserRole(user_id=user.id, role_id=role.id)
+            session.add(user_role)
+            await session.flush()
+            assert user_role.id is not None
+
+    @pytest.mark.asyncio
+    async def test_relationship_loading(self, db_manager):
+        """Test that relationships are properly loaded with eager loading."""
+        await db_manager.create_all_tables()
+
+        async for session in db_manager.get_session():
+            # Create test data
+            user = User(
+                email="relationship@example.com",
+                username="reltest",
+                hashed_password="password",
+            )
+            role = Role(
+                name="admin",
+                description="Administrator",
+                permissions='["admin:read", "admin:write"]',
+            )
+            session.add(user)
+            session.add(role)
+            await session.flush()
+
+            # Create relationship
+            user_role = UserRole(user_id=user.id, role_id=role.id)
+            session.add(user_role)
+            await session.flush()
+
+            # Test relationship loading
+            from sqlalchemy.orm import selectinload
+
+            stmt = (
+                select(User)
+                .options(selectinload(User.user_roles).selectinload(UserRole.role))
+                .where(User.id == user.id)
+            )
+            result = await session.execute(stmt)
+            loaded_user = result.scalar_one()
+
+            assert len(loaded_user.user_roles) == 1
+            assert loaded_user.user_roles[0].role.name == "admin"
+
+    @pytest.mark.asyncio
+    async def test_cascade_delete(self, db_manager):
+        """Test that cascade deletes work properly."""
+        await db_manager.create_all_tables()
+
+        async for session in db_manager.get_session():
+            # Create test data
+            user = User(
+                email="cascade@example.com",
+                username="cascade",
+                hashed_password="password",
+            )
+            role = Role(
+                name="cascade_role",
+                description="Role for cascade test",
+                permissions='["read"]',
+            )
+            session.add(user)
+            session.add(role)
+            await session.flush()
+
+            user_role = UserRole(user_id=user.id, role_id=role.id)
+            session.add(user_role)
+            await session.flush()
+            user_role_id = user_role.id
+
+            # Delete the user - should cascade delete user_roles
+            await session.delete(user)
+            await session.flush()
+
+            # Verify user_role was deleted due to cascade
+            stmt = select(UserRole).where(UserRole.id == user_role_id)
+            result = await session.execute(stmt)
+            deleted_user_role = result.scalar_one_or_none()
+            assert deleted_user_role is None

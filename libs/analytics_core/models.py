@@ -2,8 +2,8 @@
 
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, Integer, String, Text, func
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, String, Text, func
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .database import Base
 
@@ -41,6 +41,12 @@ class User(BaseModel):
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     is_superuser: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
 
+    # Relationships
+    user_roles: Mapped[list["UserRole"]] = relationship(
+        back_populates="user", cascade="all, delete-orphan"
+    )
+    audit_logs: Mapped[list["AuditLog"]] = relationship(back_populates="user")
+
 
 class Role(BaseModel):
     """Role model for RBAC."""
@@ -54,14 +60,31 @@ class Role(BaseModel):
     permissions: Mapped[str | None] = mapped_column(Text, nullable=True)  # JSON string
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
 
+    # Relationships
+    user_roles: Mapped[list["UserRole"]] = relationship(
+        back_populates="role", cascade="all, delete-orphan"
+    )
+
 
 class UserRole(BaseModel):
     """Many-to-many relationship between users and roles."""
 
     __tablename__ = "user_roles"
+    __table_args__ = (
+        Index("ix_user_roles_user_id_role_id", "user_id", "role_id"),
+        Index("ix_user_roles_role_id_user_id", "role_id", "user_id"),
+    )
 
-    user_id: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
-    role_id: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
+    user_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("users.id"), nullable=False, index=True
+    )
+    role_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("roles.id"), nullable=False, index=True
+    )
+
+    # Relationships
+    user: Mapped["User"] = relationship(back_populates="user_roles")
+    role: Mapped["Role"] = relationship(back_populates="user_roles")
 
 
 class AuditLog(BaseModel):
@@ -69,10 +92,15 @@ class AuditLog(BaseModel):
 
     __tablename__ = "audit_logs"
 
-    user_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
+    user_id: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("users.id"), nullable=True, index=True
+    )
     action: Mapped[str] = mapped_column(String(100), nullable=False, index=True)
     resource: Mapped[str | None] = mapped_column(String(100), nullable=True, index=True)
     resource_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
     details: Mapped[str | None] = mapped_column(Text, nullable=True)  # JSON string
     ip_address: Mapped[str | None] = mapped_column(String(45), nullable=True)
     user_agent: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    # Relationships
+    user: Mapped["User | None"] = relationship(back_populates="audit_logs")

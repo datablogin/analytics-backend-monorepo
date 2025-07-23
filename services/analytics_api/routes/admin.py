@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, field_validator
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from libs.analytics_core.auth import require_permissions
 from libs.analytics_core.database import get_db_session
@@ -29,13 +30,20 @@ class RoleResponse(BaseModel):
 
     @field_validator("permissions", mode="before")
     @classmethod
-    def parse_permissions(cls, v):
+    def parse_permissions(cls, v: str | list[str] | None) -> list[str]:
         if isinstance(v, str):
             try:
-                return json.loads(v)
+                parsed = json.loads(v)
+                if isinstance(parsed, list) and all(
+                    isinstance(item, str) for item in parsed
+                ):
+                    return parsed
+                return []
             except json.JSONDecodeError:
                 return []
-        return v if v is not None else []
+        if isinstance(v, list):
+            return [str(item) for item in v if isinstance(item, str)]
+        return []
 
 
 class UserRoleAssignment(BaseModel):
@@ -115,7 +123,7 @@ async def update_role(
 
     role.name = role_data.name
     role.description = role_data.description
-    role.permissions = role_data.permissions
+    role.permissions = json.dumps(role_data.permissions)
 
     await db.commit()
     await db.refresh(role)
@@ -231,20 +239,23 @@ async def get_users_with_roles(
     db: AsyncSession = Depends(get_db_session),
     current_user: User = Depends(require_permissions("admin:users:read")),
 ):
-    stmt = select(User).where(User.is_active)
+    # Use eager loading to avoid N+1 query problem
+    stmt = (
+        select(User)
+        .options(selectinload(User.user_roles).selectinload(UserRole.role))
+        .where(User.is_active)
+    )
     result = await db.execute(stmt)
     users = result.scalars().all()
 
     users_with_roles = []
     for user in users:
-        # Get user roles
-        stmt = (
-            select(Role)
-            .join(UserRole, UserRole.role_id == Role.id)
-            .where(UserRole.user_id == user.id, Role.is_active)
-        )
-        result = await db.execute(stmt)
-        roles = result.scalars().all()
+        # Filter only active roles and convert to response format
+        active_roles = [
+            RoleResponse.model_validate(user_role.role)
+            for user_role in user.user_roles
+            if user_role.role.is_active
+        ]
 
         user_data = UserWithRoles(
             id=user.id,
@@ -252,7 +263,7 @@ async def get_users_with_roles(
             email=user.email,
             full_name=user.full_name,
             is_active=user.is_active,
-            roles=[RoleResponse.model_validate(role) for role in roles],
+            roles=active_roles,
         )
         users_with_roles.append(user_data)
 
