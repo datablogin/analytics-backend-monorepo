@@ -34,7 +34,9 @@ class RoleResponse(BaseModel):
         if isinstance(v, str):
             try:
                 parsed = json.loads(v)
-                if isinstance(parsed, list) and all(isinstance(item, str) for item in parsed):
+                if isinstance(parsed, list) and all(
+                    isinstance(item, str) for item in parsed
+                ):
                     return parsed
                 return []
             except json.JSONDecodeError:
@@ -238,9 +240,11 @@ async def get_users_with_roles(
     current_user: User = Depends(require_permissions("admin:users:read")),
 ):
     # Use eager loading to avoid N+1 query problem
-    stmt = select(User).options(
-        selectinload(User.user_roles).selectinload(UserRole.role)
-    ).where(User.is_active)
+    stmt = (
+        select(User)
+        .options(selectinload(User.user_roles).selectinload(UserRole.role))
+        .where(User.is_active)
+    )
     result = await db.execute(stmt)
     users = result.scalars().all()
 

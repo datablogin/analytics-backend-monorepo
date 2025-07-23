@@ -25,37 +25,47 @@ def upgrade() -> None:
     connection = op.get_bind()
 
     # Check for orphaned user_roles records
-    orphaned_user_roles = connection.execute(sa.text("""
+    orphaned_user_roles = connection.execute(
+        sa.text("""
         SELECT COUNT(*) FROM user_roles ur
         WHERE ur.user_id NOT IN (SELECT id FROM users)
            OR ur.role_id NOT IN (SELECT id FROM roles)
-    """)).scalar()
+    """)
+    ).scalar()
 
     if orphaned_user_roles > 0:
         # Clean up orphaned user_roles records
-        connection.execute(sa.text("""
+        connection.execute(
+            sa.text("""
             DELETE FROM user_roles
             WHERE user_id NOT IN (SELECT id FROM users)
                OR role_id NOT IN (SELECT id FROM roles)
-        """))
+        """)
+        )
         print(f"Cleaned up {orphaned_user_roles} orphaned user_roles records")
 
     # Check for orphaned audit_logs records
-    orphaned_audit_logs = connection.execute(sa.text("""
+    orphaned_audit_logs = connection.execute(
+        sa.text("""
         SELECT COUNT(*) FROM audit_logs al
         WHERE al.user_id IS NOT NULL
           AND al.user_id NOT IN (SELECT id FROM users)
-    """)).scalar()
+    """)
+    ).scalar()
 
     if orphaned_audit_logs > 0:
         # Set orphaned audit_logs user_id to NULL instead of deleting
-        connection.execute(sa.text("""
+        connection.execute(
+            sa.text("""
             UPDATE audit_logs
             SET user_id = NULL
             WHERE user_id IS NOT NULL
               AND user_id NOT IN (SELECT id FROM users)
-        """))
-        print(f"Cleaned up {orphaned_audit_logs} orphaned audit_logs records by setting user_id to NULL")
+        """)
+        )
+        print(
+            f"Cleaned up {orphaned_audit_logs} orphaned audit_logs records by setting user_id to NULL"
+        )
 
     # Add is_active column to roles table
     with op.batch_alter_table("roles", schema=None) as batch_op:

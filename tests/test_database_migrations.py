@@ -313,9 +313,12 @@ class TestForeignKeyConstraints:
 
             # Test relationship loading
             from sqlalchemy.orm import selectinload
-            stmt = select(User).options(
-                selectinload(User.user_roles).selectinload(UserRole.role)
-            ).where(User.id == user.id)
+
+            stmt = (
+                select(User)
+                .options(selectinload(User.user_roles).selectinload(UserRole.role))
+                .where(User.id == user.id)
+            )
             result = await session.execute(stmt)
             loaded_user = result.scalar_one()
 

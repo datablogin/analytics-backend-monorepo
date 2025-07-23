@@ -61,7 +61,9 @@ class DatabaseManager:
 
         # Enable foreign key enforcement for SQLite
         if "sqlite" in database_url:
-            event.listen(self.async_engine.sync_engine, "connect", _enable_sqlite_foreign_keys)
+            event.listen(
+                self.async_engine.sync_engine, "connect", _enable_sqlite_foreign_keys
+            )
 
         # Create async session factory
         self.async_session_factory = async_sessionmaker(
