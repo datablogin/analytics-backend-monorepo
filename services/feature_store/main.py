@@ -51,7 +51,9 @@ async def lifespan(app: FastAPI):
     app.state.db_manager = db_manager
 
     logger.info(
-        "Database initialized", service="feature_store", database_url=db_settings.url  # type: ignore
+        "Database initialized",
+        service="feature_store",
+        database_url=db_settings.url,  # type: ignore
     )
 
     yield
