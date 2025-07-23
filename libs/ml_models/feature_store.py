@@ -1,4 +1,9 @@
-"""Feature store for reusable feature engineering and serving."""
+"""Feature store for reusable feature engineering and serving.
+
+NOTE: This module is in partial async conversion state. Some methods are async
+while others remain synchronous. This causes type checking errors that need
+to be resolved with a complete async refactoring.
+"""
 
 import json
 import time
@@ -388,11 +393,11 @@ class FeatureStore:
                     error=str(error),
                 )
                 self.cache_client = None
-                self.feature_cache: dict[str, dict[str, Any]] = {}
         else:
             self.cache_client = None
-            # Initialize feature cache
-            self.feature_cache: dict[str, dict[str, Any]] = {}
+
+        # Initialize feature cache
+        self.feature_cache: dict[str, dict[str, Any]] = {}
 
     async def create_feature(self, feature_def: FeatureDefinition) -> str:
         """Create a new feature definition."""
@@ -1324,7 +1329,7 @@ class FeatureStore:
                 cache_key = f"{fv.feature_name}:{fv.entity_id}"
                 self.feature_cache[cache_key] = {
                     "value": fv.value,
-                    "timestamp": fv.timestamp,
+                    "timestamp": fv.event_timestamp,
                     "valid_until": fv.valid_until,
                     "cached_at": datetime.now(timezone.utc),
                 }
