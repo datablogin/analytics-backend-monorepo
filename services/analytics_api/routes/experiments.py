@@ -21,7 +21,7 @@ from libs.api_common.response_models import APIMetadata, StandardResponse
 from libs.ml_models import (
     ExperimentCreate,
     ExperimentResponse,
-    ExperimentTracker,
+    MyExperimentTracker,
     MetricCreate,
     ParamCreate,
     RunCreate,
@@ -40,7 +40,7 @@ async def create_experiment(
     current_user: User = Depends(get_current_user),
 ) -> StandardResponse[ExperimentResponse]:
     """Create a new ML experiment."""
-    tracker = ExperimentTracker(db)
+    tracker = MyExperimentTracker(db)
 
     try:
         experiment = await tracker.create_experiment(
@@ -70,7 +70,7 @@ async def list_experiments(
     current_user: User = Depends(get_current_user),
 ) -> StandardResponse[list[ExperimentResponse]]:
     """List ML experiments with pagination."""
-    tracker = ExperimentTracker(db)
+    tracker = MyExperimentTracker(db)
 
     experiments = await tracker.list_experiments(limit=limit, offset=offset)
 
@@ -94,7 +94,7 @@ async def get_experiment(
     current_user: User = Depends(get_current_user),
 ) -> StandardResponse[ExperimentResponse]:
     """Get a specific experiment by ID."""
-    tracker = ExperimentTracker(db)
+    tracker = MyExperimentTracker(db)
 
     experiment = await tracker.get_experiment(experiment_id)
 
@@ -122,7 +122,7 @@ async def create_run(
     current_user: User = Depends(get_current_user),
 ) -> StandardResponse[RunResponse]:
     """Create a new experiment run."""
-    tracker = ExperimentTracker(db)
+    tracker = MyExperimentTracker(db)
 
     try:
         run = await tracker.create_run(experiment_id, run_data)
@@ -153,7 +153,7 @@ async def list_runs(
     current_user: User = Depends(get_current_user),
 ) -> StandardResponse[list[RunResponse]]:
     """List runs for an experiment."""
-    tracker = ExperimentTracker(db)
+    tracker = MyExperimentTracker(db)
 
     runs = await tracker.list_runs(experiment_id, limit=limit, offset=offset)
 
@@ -178,7 +178,7 @@ async def log_metric(
     current_user: User = Depends(get_current_user),
 ) -> StandardResponse[dict]:
     """Log a metric for an experiment run."""
-    tracker = ExperimentTracker(db)
+    tracker = MyExperimentTracker(db)
 
     try:
         await tracker.log_metric(run_uuid, metric)
@@ -206,7 +206,7 @@ async def log_param(
     current_user: User = Depends(get_current_user),
 ) -> StandardResponse[dict]:
     """Log a parameter for an experiment run."""
-    tracker = ExperimentTracker(db)
+    tracker = MyExperimentTracker(db)
 
     try:
         await tracker.log_param(run_uuid, param)
@@ -234,7 +234,7 @@ async def finish_run(
     current_user: User = Depends(get_current_user),
 ) -> StandardResponse[dict]:
     """Finish an experiment run."""
-    tracker = ExperimentTracker(db)
+    tracker = MyExperimentTracker(db)
 
     try:
         await tracker.finish_run(run_uuid, status)
@@ -263,7 +263,7 @@ async def get_run_metrics(
     current_user: User = Depends(get_current_user),
 ) -> StandardResponse[list[dict[str, Any]]]:
     """Get all metrics for an experiment run."""
-    tracker = ExperimentTracker(db)
+    tracker = MyExperimentTracker(db)
 
     metrics = await tracker.get_run_metrics(run_uuid)
 
@@ -287,7 +287,7 @@ async def get_run_params(
     current_user: User = Depends(get_current_user),
 ) -> StandardResponse[dict[str, str]]:
     """Get all parameters for an experiment run."""
-    tracker = ExperimentTracker(db)
+    tracker = MyExperimentTracker(db)
 
     params = await tracker.get_run_params(run_uuid)
 
@@ -316,7 +316,7 @@ async def compare_runs(
             status_code=400, detail="At least 2 runs are required for comparison"
         )
 
-    tracker = ExperimentTracker(db)
+    tracker = MyExperimentTracker(db)
 
     comparison = await tracker.compare_runs(run_uuids)
 
