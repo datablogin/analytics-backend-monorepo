@@ -1,6 +1,6 @@
 """Data quality monitoring and management API endpoints."""
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel
@@ -146,7 +146,7 @@ async def get_recent_validations(
             ValidationSummary(
                 dataset_name="user_events",
                 suite_name="user_events_suite",
-                validation_time=datetime.utcnow() - timedelta(hours=1),
+                validation_time=datetime.now(timezone.utc) - timedelta(hours=1),
                 success=True,
                 success_rate=98.5,
                 expectations_count=15,
@@ -155,7 +155,7 @@ async def get_recent_validations(
             ValidationSummary(
                 dataset_name="product_catalog",
                 suite_name="product_catalog_suite",
-                validation_time=datetime.utcnow() - timedelta(hours=2),
+                validation_time=datetime.now(timezone.utc) - timedelta(hours=2),
                 success=False,
                 success_rate=87.2,
                 expectations_count=20,
@@ -209,7 +209,7 @@ async def validate_dataset(
 
         # For demonstration, returning structured mock response
         result = {
-            "validation_id": f"val_{int(datetime.utcnow().timestamp())}",
+            "validation_id": f"val_{int(datetime.now(timezone.utc).timestamp())}",
             "dataset_name": validation_request.dataset_name,
             "suite_name": validation_request.suite_name,
             "status": "completed",
@@ -252,7 +252,7 @@ async def get_data_profiles(
         profiles = [
             ProfileSummary(
                 dataset_name="user_events",
-                profiling_time=datetime.utcnow() - timedelta(hours=1),
+                profiling_time=datetime.now(timezone.utc) - timedelta(hours=1),
                 row_count=1250000,
                 column_count=15,
                 missing_percentage=2.3,
@@ -261,7 +261,7 @@ async def get_data_profiles(
             ),
             ProfileSummary(
                 dataset_name="product_catalog",
-                profiling_time=datetime.utcnow() - timedelta(hours=3),
+                profiling_time=datetime.now(timezone.utc) - timedelta(hours=3),
                 row_count=45000,
                 column_count=22,
                 missing_percentage=5.7,
@@ -504,7 +504,7 @@ async def get_quality_alerts(
         alerts = [
             {
                 "id": "alert_001",
-                "timestamp": datetime.utcnow() - timedelta(minutes=30),
+                "timestamp": datetime.now(timezone.utc) - timedelta(minutes=30),
                 "severity": "high",
                 "dataset": "user_events",
                 "message": "Null values detected in required field 'user_id'",
@@ -514,7 +514,7 @@ async def get_quality_alerts(
             },
             {
                 "id": "alert_002",
-                "timestamp": datetime.utcnow() - timedelta(hours=2),
+                "timestamp": datetime.now(timezone.utc) - timedelta(hours=2),
                 "severity": "medium",
                 "dataset": "product_catalog",
                 "message": "Data freshness SLA violated",

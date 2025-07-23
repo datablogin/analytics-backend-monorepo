@@ -1,7 +1,7 @@
 """ML Experiment tracking functionality."""
 
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -196,7 +196,7 @@ class ExperimentTracker:
             run_uuid=run_uuid,
             name=run_data.name,
             status="RUNNING",
-            start_time=datetime.utcnow(),
+            start_time=datetime.now(timezone.utc),
             artifact_uri=artifact_uri,
         )
 
@@ -234,7 +234,7 @@ class ExperimentTracker:
             key=metric.key,
             value=metric.value,
             step=metric.step,
-            timestamp=datetime.utcnow(),
+            timestamp=datetime.now(timezone.utc),
         )
 
         self.db.add(metric_obj)
@@ -260,7 +260,7 @@ class ExperimentTracker:
 
         if run:
             run.status = status
-            run.end_time = datetime.utcnow()
+            run.end_time = datetime.now(timezone.utc)
             await self.db.commit()
 
     async def get_run_metrics(self, run_uuid: str) -> list[dict[str, Any]]:

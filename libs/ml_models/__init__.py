@@ -11,7 +11,7 @@ from .experiment_tracking import (
     RunResponse,
 )
 from .experiment_tracking import (
-    ExperimentTracker as MyExperimentTracker,
+    ExperimentTracker as DatabaseExperimentTracker,
 )
 
 # Existing ML models functionality
@@ -53,8 +53,8 @@ __all__ = [
     "ExperimentConfig",
     "ExperimentMetadata",
     "RunMetadata",
-    # My ML Experiment Tracking Implementation
-    "MyExperimentTracker",
+    # Database-backed ML Experiment Tracking Implementation
+    "DatabaseExperimentTracker",
     "ExperimentCreate",
     "ExperimentResponse",
     "RunCreate",
