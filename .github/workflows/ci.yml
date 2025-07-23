@@ -6,9 +6,16 @@ on:
   pull_request:
     branches: [ main ]
 
+# Global workflow timeout as safety net
+run-name: "CI Pipeline ${{ github.run_number }}"
+defaults:
+  run:
+    shell: bash
+
 jobs:
   test:
     runs-on: ubuntu-latest
+    timeout-minutes: 15  # Prevent runaway tests
     strategy:
       matrix:
         python-version: ["3.10", "3.11", "3.12"]
@@ -43,6 +50,7 @@ jobs:
         uv run mypy libs/ services/
     
     - name: Run tests
+      timeout-minutes: 10  # Most tests should complete quickly
       run: |
         uv run pytest --cov=libs --cov=services --cov-report=xml --cov-report=term
     
@@ -54,6 +62,7 @@ jobs:
 
   security:
     runs-on: ubuntu-latest
+    timeout-minutes: 10  # Security scans should be quick
     steps:
     - uses: actions/checkout@v4
     
@@ -77,6 +86,7 @@ jobs:
 
   docker:
     runs-on: ubuntu-latest
+    timeout-minutes: 20  # Docker builds can take longer
     steps:
     - uses: actions/checkout@v4
     
