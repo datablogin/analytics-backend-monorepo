@@ -57,7 +57,6 @@ class BigQueryConnector(DataWarehouseConnector):
     async def connect(self) -> None:
         """Establish connection to BigQuery."""
         try:
-
             from google.cloud import bigquery
             from google.oauth2 import service_account
 

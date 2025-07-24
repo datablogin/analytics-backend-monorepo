@@ -270,7 +270,7 @@ class DataCube:
 
     def build_sql_query(self, query: CubeQuery) -> tuple[str, dict[str, Any]]:
         """Build SQL query from cube query definition.
-        
+
         Returns:
             tuple: (SQL query with placeholders, parameters dict)
         """
@@ -313,7 +313,9 @@ class DataCube:
                         parameters[param_name] = v
                         param_names.append(f":{param_name}")
                         param_counter += 1
-                    where_conditions.append(f"{dimension.column} IN ({', '.join(param_names)})")
+                    where_conditions.append(
+                        f"{dimension.column} IN ({', '.join(param_names)})"
+                    )
                 else:
                     # Equality with parameter
                     param_name = f"param_{param_counter}"

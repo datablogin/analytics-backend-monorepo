@@ -11,9 +11,9 @@ from typing import Any
 
 import structlog
 
-from .connectors.base import DataWarehouseConnector
-from .connectors.factory import ConnectorFactory
+from .connectors.base import DataWarehouseConnector, WarehouseType
 from .olap.engine import OLAPEngine
+from .pool import ConnectionPool, ConnectionPoolConfig
 from .query.cache import QueryCache
 from .query.federation import FederatedQueryEngine
 
@@ -21,115 +21,173 @@ from .query.federation import FederatedQueryEngine
 class DataWarehouseManager:
     """
     Manager for data warehouse connections and associated components.
-    
+
     Provides dependency injection for connectors, OLAP engines, caches,
-    and federation engines without relying on global state.
+    and federation engines with connection pooling support.
     """
 
-    def __init__(self):
+    def __init__(self, pool_config: ConnectionPoolConfig | None = None):
         """Initialize the data warehouse manager."""
         self.logger = structlog.get_logger(__name__)
-        self._connections: dict[str, DataWarehouseConnector] = {}
+        self._connection_pools: dict[str, ConnectionPool] = {}
         self._olap_engines: dict[str, OLAPEngine] = {}
         self._query_cache = QueryCache()
         self._federation_engine = FederatedQueryEngine()
+        self._default_pool_config = pool_config or ConnectionPoolConfig()
 
-    async def create_connection(
+    async def create_connection_pool(
         self,
         connection_id: str,
         warehouse_type: str,
-        connection_params: dict[str, Any]
+        connection_params: dict[str, Any],
+        pool_config: ConnectionPoolConfig | None = None,
+    ) -> ConnectionPool:
+        """
+        Create and register a new connection pool.
+
+        Args:
+            connection_id: Unique identifier for the connection pool
+            warehouse_type: Type of data warehouse
+            connection_params: Connection configuration parameters
+            pool_config: Optional pool configuration override
+
+        Returns:
+            ConnectionPool: The created connection pool
+        """
+        self.logger.info(
+            "creating_connection_pool",
+            connection_id=connection_id,
+            warehouse_type=warehouse_type,
+        )
+
+        wh_type = WarehouseType(warehouse_type)
+        config = pool_config or self._default_pool_config
+
+        # Create connection pool
+        pool = ConnectionPool(connection_id, wh_type, connection_params, config)
+
+        # Initialize the pool
+        await pool.initialize()
+
+        # Store the pool
+        self._connection_pools[connection_id] = pool
+
+        self.logger.info(
+            "connection_pool_created",
+            connection_id=connection_id,
+            warehouse_type=warehouse_type,
+            min_connections=config.min_connections,
+            max_connections=config.max_connections,
+        )
+
+        return pool
+
+    async def create_connection(
+        self, connection_id: str, warehouse_type: str, connection_params: dict[str, Any]
     ) -> DataWarehouseConnector:
         """
-        Create and register a new data warehouse connection.
-        
+        Create a connection through the pool system.
+
+        This method maintains backward compatibility by creating a pool
+        and returning a connection from it.
+
         Args:
             connection_id: Unique identifier for the connection
             warehouse_type: Type of data warehouse
             connection_params: Connection configuration parameters
-            
+
         Returns:
-            DataWarehouseConnector: The created connector
+            DataWarehouseConnector: A connector from the pool
         """
-        self.logger.info("creating_connection",
-                        connection_id=connection_id,
-                        warehouse_type=warehouse_type)
+        if connection_id not in self._connection_pools:
+            await self.create_connection_pool(
+                connection_id, warehouse_type, connection_params
+            )
 
-        # Create connector using factory
-        from .connectors.base import WarehouseType
-        wh_type = WarehouseType(warehouse_type)
-        connector = ConnectorFactory.create_connector(wh_type, connection_params)
+        pool = self._connection_pools[connection_id]
+        async with pool.acquire() as connector:
+            return connector
 
-        # Connect to the warehouse
-        await connector.connect()
-
-        # Store the connection
-        self._connections[connection_id] = connector
-
-        self.logger.info("connection_created",
-                        connection_id=connection_id,
-                        status=connector.status.value)
-
-        return connector
-
-    async def get_connection(self, connection_id: str) -> DataWarehouseConnector | None:
+    async def get_connection(
+        self, connection_id: str
+    ) -> object | None:
         """
-        Get an existing connection by ID.
-        
+        Get a connection from the pool by ID.
+
         Args:
             connection_id: The connection identifier
-            
+
         Returns:
-            DataWarehouseConnector if found, None otherwise
+            AsyncContextManager yielding DataWarehouseConnector if pool found, None otherwise
         """
-        return self._connections.get(connection_id)
+        pool = self._connection_pools.get(connection_id)
+        if pool:
+            return pool.acquire()
+        return None
+
+    async def get_connection_pool(self, connection_id: str) -> ConnectionPool | None:
+        """
+        Get a connection pool by ID.
+
+        Args:
+            connection_id: The connection identifier
+
+        Returns:
+            ConnectionPool if found, None otherwise
+        """
+        return self._connection_pools.get(connection_id)
 
     async def remove_connection(self, connection_id: str) -> bool:
         """
-        Remove and disconnect a connection.
-        
+        Remove and close a connection pool.
+
         Args:
             connection_id: The connection identifier
-            
+
         Returns:
-            bool: True if connection was removed, False if not found
+            bool: True if pool was removed, False if not found
         """
-        if connection_id not in self._connections:
+        if connection_id not in self._connection_pools:
             return False
 
-        connector = self._connections[connection_id]
+        pool = self._connection_pools[connection_id]
         try:
-            await connector.disconnect()
+            await pool.close()
         except Exception as e:
-            self.logger.warning("disconnect_failed",
-                              connection_id=connection_id,
-                              error=str(e))
+            self.logger.warning(
+                "pool_close_failed", connection_id=connection_id, error=str(e)
+            )
 
-        del self._connections[connection_id]
+        del self._connection_pools[connection_id]
 
         # Clean up associated OLAP engine
         if connection_id in self._olap_engines:
             del self._olap_engines[connection_id]
 
-        self.logger.info("connection_removed", connection_id=connection_id)
+        self.logger.info("connection_pool_removed", connection_id=connection_id)
         return True
 
     async def get_olap_engine(self, connection_id: str) -> OLAPEngine | None:
         """
-        Get or create an OLAP engine for a connection.
-        
+        Get or create an OLAP engine for a connection pool.
+
         Args:
             connection_id: The connection identifier
-            
+
         Returns:
-            OLAPEngine if connection exists, None otherwise
+            OLAPEngine if connection pool exists, None otherwise
         """
-        if connection_id not in self._connections:
+        if connection_id not in self._connection_pools:
             return None
 
         if connection_id not in self._olap_engines:
-            connector = self._connections[connection_id]
-            self._olap_engines[connection_id] = OLAPEngine(connector)
+            # Create OLAP engine with a pooled connector
+            pool = self._connection_pools[connection_id]
+            # For OLAP engines, we'll use a simple connector proxy that manages pool access
+            from .connectors.pool_proxy import PoolProxyConnector
+
+            proxy_connector = PoolProxyConnector(pool)
+            self._olap_engines[connection_id] = OLAPEngine(proxy_connector)
             self.logger.info("olap_engine_created", connection_id=connection_id)
 
         return self._olap_engines[connection_id]
@@ -143,14 +201,23 @@ class DataWarehouseManager:
         return self._federation_engine
 
     async def cleanup(self) -> None:
-        """Clean up all connections and resources."""
-        self.logger.info("cleaning_up_connections", count=len(self._connections))
+        """Clean up all connection pools and resources."""
+        self.logger.info(
+            "cleaning_up_connection_pools", count=len(self._connection_pools)
+        )
 
-        for connection_id in list(self._connections.keys()):
+        for connection_id in list(self._connection_pools.keys()):
             await self.remove_connection(connection_id)
 
         self._olap_engines.clear()
         self._query_cache.clear()
+
+    def get_pool_stats(self) -> dict[str, Any]:
+        """Get statistics for all connection pools."""
+        return {
+            pool_id: pool.get_stats()
+            for pool_id, pool in self._connection_pools.items()
+        }
 
 
 # Global instance for FastAPI dependency injection
@@ -160,10 +227,10 @@ _manager_instance: DataWarehouseManager | None = None
 def get_data_warehouse_manager() -> DataWarehouseManager:
     """
     Get the global DataWarehouseManager instance.
-    
+
     This function serves as a FastAPI dependency to provide
     access to the data warehouse manager throughout the application.
-    
+
     Returns:
         DataWarehouseManager: The global manager instance
     """
@@ -177,10 +244,10 @@ def get_data_warehouse_manager() -> DataWarehouseManager:
 async def data_warehouse_lifespan() -> AsyncGenerator[DataWarehouseManager, None]:
     """
     Context manager for managing data warehouse lifecycle.
-    
+
     This can be used with FastAPI's lifespan events to ensure
     proper cleanup of connections when the application shuts down.
-    
+
     Yields:
         DataWarehouseManager: The manager instance
     """

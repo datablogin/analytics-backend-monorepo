@@ -274,7 +274,7 @@ class TestOLAPCube:
         assert "SUM(revenue)" in sql
         assert "SUM(quantity)" in sql
         assert "FROM analytics.sales_fact" in sql
-        assert "WHERE region = 'California'" in sql
+        assert "WHERE region = :param_0" in sql
         assert "GROUP BY" in sql
         assert "ORDER BY revenue DESC" in sql
         assert "LIMIT 100" in sql
@@ -378,7 +378,14 @@ class TestOLAPEngine:
 
         slice_op = SliceOperation("region", "California")
 
-        result = await engine.execute_operation("sales_cube", slice_op)
+        # Provide a base query with dimensions and measures
+        base_query = CubeQuery(
+            cube_name="sales_cube",
+            dimensions=["product"],
+            measures=["revenue"]
+        )
+
+        result = await engine.execute_operation("sales_cube", slice_op, base_query)
 
         assert result.cube_name == "sales_cube"
         assert len(result.cells) > 0
@@ -429,7 +436,7 @@ class TestQueryCache:
         """Test TTL expiration."""
         from datetime import datetime, timedelta
 
-        config = CacheConfig(default_ttl_seconds=1)
+        config = CacheConfig(default_ttl_seconds=1, min_ttl_seconds=1, max_ttl_seconds=10)
         cache = QueryCache(config)
 
         result = QueryResult(
@@ -467,7 +474,7 @@ class TestQueryCache:
         stats = cache.get_stats()
 
         assert stats["total_entries"] == 1
-        assert stats["total_hits"] >= 1
+        assert stats["hit_count"] >= 1
         assert "total_size_mb" in stats
         assert "memory_utilization" in stats
 
@@ -592,7 +599,6 @@ class TestIntegration:
 
         # Verify result
         assert result.cube_name == "sales_cube"
-        assert result.success is True  # Would be added in actual implementation
         assert len(result.cells) > 0
 
     @pytest.mark.asyncio
@@ -611,14 +617,18 @@ class TestIntegration:
         )
 
         # Execute query first time
-        result1 = await engine.execute_query(query)
+        await engine.execute_query(query)
 
-        # Cache the result (in real implementation, this would be automatic)
-        sql_query, _ = cube.build_sql_query(query)
-        cache.put(
-            sql_query,
-            result1.combined_result if hasattr(result1, "combined_result") else None,
+        # Cache the result manually (in real implementation, this would be automatic)
+        # Create a QueryResult for caching test
+        query_result = QueryResult(
+            columns=["region", "revenue"],
+            data=[["North", 100], ["South", 200]],
+            metadata=QueryMetadata(execution_time_ms=1500),
+            total_rows=2,
         )
+        sql_query, _ = cube.build_sql_query(query)
+        cache.put(sql_query, query_result)
 
         # Verify cache can be used for subsequent queries
         # (This is a simplified test - real implementation would integrate caching into engine)

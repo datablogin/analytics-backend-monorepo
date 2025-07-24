@@ -5,6 +5,7 @@ This module provides a connector for Snowflake using the official
 snowflake-connector-python library with async support.
 """
 
+import asyncio
 import time
 from typing import Any
 
@@ -60,20 +61,85 @@ class SnowflakeConnector(DataWarehouseConnector):
             warehouse_type="snowflake",
             account=self.config.account,
             user=self.config.user,
-            connector_id=id(self)
+            connector_id=id(self),
         )
 
     def _get_warehouse_type(self) -> WarehouseType:
         """Return Snowflake warehouse type."""
         return WarehouseType.SNOWFLAKE
 
+    def _create_sync_connection(self, conn_params: dict[str, Any]) -> tuple[Any, Any]:
+        """
+        Create a synchronous Snowflake connection.
+
+        This method performs the actual sync connection creation that will be
+        executed asynchronously using run_in_executor.
+
+        Args:
+            conn_params: Connection parameters for Snowflake
+
+        Returns:
+            tuple: (connection, cursor) objects
+        """
+        import snowflake.connector
+        from snowflake.connector import DictCursor
+
+        connection = snowflake.connector.connect(**conn_params)
+        cursor = connection.cursor(DictCursor) if connection else None
+        return connection, cursor
+
+    def _execute_sync_query(
+        self,
+        query: str,
+        params: dict[str, Any] | None = None,
+        timeout: int | None = None,
+    ) -> tuple[list[Any], list[str], str | None]:
+        """
+        Execute a synchronous query on Snowflake.
+
+        This method performs the actual sync query execution that will be
+        executed asynchronously using run_in_executor.
+
+        Args:
+            query: SQL query to execute
+            params: Optional query parameters
+            timeout: Optional query timeout
+
+        Returns:
+            tuple: (results, columns, query_id)
+        """
+        if not self._cursor:
+            raise QueryError("Not connected to Snowflake", query)
+
+        # Set query timeout if specified
+        if timeout:
+            self._cursor.execute(
+                f"ALTER SESSION SET STATEMENT_TIMEOUT_IN_SECONDS = {timeout}"
+            )
+
+        # Execute query with parameters if provided
+        if params:
+            self._cursor.execute(query, params)
+        else:
+            self._cursor.execute(query)
+
+        # Fetch results
+        results = self._cursor.fetchall()
+        columns = (
+            [desc[0] for desc in self._cursor.description]
+            if self._cursor.description
+            else []
+        )
+
+        # Get query ID if available
+        query_id = self._cursor.sfqid if hasattr(self._cursor, "sfqid") else None
+
+        return results, columns, query_id
+
     async def connect(self) -> None:
         """Establish connection to Snowflake."""
         self.logger.info("attempting_connection", status="connecting")
         try:
-            import snowflake.connector
-            from snowflake.connector import DictCursor
-
             self._status = ConnectionStatus.CONNECTING
 
             # Build connection parameters
@@ -106,10 +172,11 @@ class SnowflakeConnector(DataWarehouseConnector):
             if self.config.role:
                 conn_params["role"] = self.config.role
 
-            # Create connection
-            self._connection = snowflake.connector.connect(**conn_params)
-            if self._connection:
-                self._cursor = self._connection.cursor(DictCursor)
+            # Create connection asynchronously using executor
+            loop = asyncio.get_event_loop()
+            self._connection, self._cursor = await loop.run_in_executor(
+                None, self._create_sync_connection, conn_params
+            )
 
             self._status = ConnectionStatus.CONNECTED
             self.logger.info("connection_successful", status="connected")
@@ -117,9 +184,12 @@ class SnowflakeConnector(DataWarehouseConnector):
         except Exception as e:
             self._status = ConnectionStatus.ERROR
             sanitized_error = sanitize_error_message(str(e))
-            self.logger.error("connection_failed", status="error", error=sanitized_error)
+            self.logger.error(
+                "connection_failed", status="error", error=sanitized_error
+            )
             raise ConnectorConnectionError(
-                f"Failed to connect to Snowflake: {sanitized_error}", WarehouseType.SNOWFLAKE
+                f"Failed to connect to Snowflake: {sanitized_error}",
+                WarehouseType.SNOWFLAKE,
             )
 
     async def disconnect(self) -> None:
@@ -145,9 +215,12 @@ class SnowflakeConnector(DataWarehouseConnector):
             if not self._cursor:
                 return False
 
-            self._cursor.execute("SELECT 1")
-            result = self._cursor.fetchone()
-            return result is not None
+            # Execute test query asynchronously
+            loop = asyncio.get_event_loop()
+            results, _, _ = await loop.run_in_executor(
+                None, self._execute_sync_query, "SELECT 1", None, None
+            )
+            return len(results) > 0 and results[0] is not None
         except Exception:
             return False
 
@@ -162,28 +235,16 @@ class SnowflakeConnector(DataWarehouseConnector):
             raise QueryError("Not connected to Snowflake", query)
 
         query_id = f"query_{int(time.time() * 1000)}"
-        self.logger.info("executing_query", query_id=query_id, has_params=params is not None)
+        self.logger.info(
+            "executing_query", query_id=query_id, has_params=params is not None
+        )
         start_time = time.time()
 
         try:
-            # Set query timeout if specified
-            if timeout:
-                self._cursor.execute(
-                    f"ALTER SESSION SET STATEMENT_TIMEOUT_IN_SECONDS = {timeout}"
-                )
-
-            # Execute query with parameters
-            if params:
-                self._cursor.execute(query, params)
-            else:
-                self._cursor.execute(query)
-
-            # Fetch results
-            results = self._cursor.fetchall()
-            columns = (
-                [desc[0] for desc in self._cursor.description]
-                if self._cursor.description
-                else []
+            # Execute query asynchronously using executor
+            loop = asyncio.get_event_loop()
+            results, columns, sf_query_id = await loop.run_in_executor(
+                None, self._execute_sync_query, query, params, timeout
             )
 
             # Convert dict results to list format
@@ -195,9 +256,6 @@ class SnowflakeConnector(DataWarehouseConnector):
 
             execution_time = int((time.time() - start_time) * 1000)
 
-            # Get query metadata
-            sf_query_id = self._cursor.sfqid if hasattr(self._cursor, "sfqid") else None
-
             metadata = QueryMetadata(
                 query_id=sf_query_id,
                 execution_time_ms=execution_time,
@@ -205,11 +263,13 @@ class SnowflakeConnector(DataWarehouseConnector):
                 cache_hit=False,
             )
 
-            self.logger.info("query_completed",
-                           query_id=query_id,
-                           snowflake_query_id=sf_query_id,
-                           execution_time_ms=execution_time,
-                           row_count=len(data) if data else 0)
+            self.logger.info(
+                "query_completed",
+                query_id=query_id,
+                snowflake_query_id=sf_query_id,
+                execution_time_ms=execution_time,
+                row_count=len(data) if data else 0,
+            )
 
             return QueryResult(
                 columns=columns,
@@ -220,10 +280,12 @@ class SnowflakeConnector(DataWarehouseConnector):
 
         except Exception as e:
             execution_time = int((time.time() - start_time) * 1000)
-            self.logger.error("query_failed",
-                            query_id=query_id,
-                            execution_time_ms=execution_time,
-                            error=str(e))
+            self.logger.error(
+                "query_failed",
+                query_id=query_id,
+                execution_time_ms=execution_time,
+                error=str(e),
+            )
             raise QueryError(f"Query execution failed: {str(e)}", query)
 
     async def execute_async_query(
@@ -367,10 +429,9 @@ class SnowflakeConnector(DataWarehouseConnector):
             ORDER BY ORDINAL_POSITION
         """
 
-        result = await self.execute_query(columns_query, {
-            "schema_name": schema_name,
-            "table_name": table_name
-        })
+        result = await self.execute_query(
+            columns_query, {"schema_name": schema_name, "table_name": table_name}
+        )
         columns = []
 
         for row in result.data:

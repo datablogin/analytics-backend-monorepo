@@ -33,8 +33,7 @@ class OLAPEngine:
         self.connector = connector
         self._cubes: dict[str, DataCube] = {}
         self.logger = structlog.get_logger(__name__).bind(
-            warehouse_type=connector.warehouse_type.value,
-            engine_id=id(self)
+            warehouse_type=connector.warehouse_type.value, engine_id=id(self)
         )
 
     def register_cube(self, cube: DataCube) -> None:
@@ -81,11 +80,13 @@ class OLAPEngine:
             self.logger.error("cube_not_found", cube_name=query.cube_name)
             raise ValueError(f"Cube '{query.cube_name}' not found")
 
-        self.logger.info("executing_cube_query",
-                        cube_name=query.cube_name,
-                        dimensions=query.dimensions,
-                        measures=query.measures,
-                        has_filters=bool(query.filters))
+        self.logger.info(
+            "executing_cube_query",
+            cube_name=query.cube_name,
+            dimensions=query.dimensions,
+            measures=query.measures,
+            has_filters=bool(query.filters),
+        )
 
         # Build SQL query with parameters
         sql_query, params = cube.build_sql_query(query)
@@ -95,10 +96,12 @@ class OLAPEngine:
         result = await self.connector.execute_query(sql_query, params)
         execution_time = int((time.time() - start_time) * 1000)
 
-        self.logger.info("cube_query_completed",
-                        cube_name=query.cube_name,
-                        execution_time_ms=execution_time,
-                        result_rows=result.total_rows)
+        self.logger.info(
+            "cube_query_completed",
+            cube_name=query.cube_name,
+            execution_time_ms=execution_time,
+            result_rows=result.total_rows,
+        )
 
         # Convert to cube result
         return self._convert_to_cube_result(query, result, execution_time)
