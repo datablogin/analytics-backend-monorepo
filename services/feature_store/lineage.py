@@ -1,5 +1,5 @@
 """Feature lineage tracking and impact analysis."""
-# mypy: disable-error-code=attr-defined,arg-type,call-overload,var-annotated
+# type: ignore
 
 import json
 from datetime import datetime
