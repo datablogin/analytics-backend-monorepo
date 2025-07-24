@@ -37,6 +37,7 @@ from services.analytics_api.routes import (
     admin,
     auth,
     data_quality,
+    data_warehouse,
     experiments,
     models,
 )
@@ -118,6 +119,7 @@ v1_router.include_router(auth.router)
 v1_router.include_router(admin.router)
 v1_router.include_router(ab_testing.router)
 v1_router.include_router(data_quality.router)
+v1_router.include_router(data_warehouse.router)
 v1_router.include_router(experiments.router)
 v1_router.include_router(models.router)
 

@@ -44,6 +44,11 @@ dependencies = [
     "scipy>=1.11.0",
     "statsmodels>=0.14.0",
     "pymc>=5.10.0",
+    # Data warehouse connectors
+    "snowflake-connector-python>=3.16.0",
+    "google-cloud-bigquery>=3.25.0",
+    "redshift-connector>=2.1.0",
+    "pyarrow>=17.0.0",
 ]
 
 [project.optional-dependencies]
