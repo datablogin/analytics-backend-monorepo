@@ -12,7 +12,7 @@ from pydantic import BaseModel
 
 from libs.analytics_core.auth import require_permissions
 from libs.analytics_core.models import User
-from libs.analytics_core.responses import StandardResponse
+from libs.api_common.response_models import StandardResponse
 from libs.data_warehouse import (
     WarehouseType,
 )
