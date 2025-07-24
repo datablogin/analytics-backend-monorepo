@@ -380,9 +380,7 @@ class TestOLAPEngine:
 
         # Provide a base query with dimensions and measures
         base_query = CubeQuery(
-            cube_name="sales_cube",
-            dimensions=["product"],
-            measures=["revenue"]
+            cube_name="sales_cube", dimensions=["product"], measures=["revenue"]
         )
 
         result = await engine.execute_operation("sales_cube", slice_op, base_query)
@@ -436,7 +434,9 @@ class TestQueryCache:
         """Test TTL expiration."""
         from datetime import datetime, timedelta
 
-        config = CacheConfig(default_ttl_seconds=1, min_ttl_seconds=1, max_ttl_seconds=10)
+        config = CacheConfig(
+            default_ttl_seconds=1, min_ttl_seconds=1, max_ttl_seconds=10
+        )
         cache = QueryCache(config)
 
         result = QueryResult(

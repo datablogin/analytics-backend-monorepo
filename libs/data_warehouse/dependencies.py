@@ -108,9 +108,7 @@ class DataWarehouseManager:
         async with pool.acquire() as connector:
             return connector
 
-    async def get_connection(
-        self, connection_id: str
-    ) -> object | None:
+    async def get_connection(self, connection_id: str) -> object | None:
         """
         Get a connection from the pool by ID.
 

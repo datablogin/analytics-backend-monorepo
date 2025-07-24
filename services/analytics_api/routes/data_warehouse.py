@@ -726,7 +726,9 @@ async def validate_warehouse_config(
             data={
                 "warehouse_type": warehouse_type.value,
                 "valid": True,
-                "validated_config": validated_config.model_dump(exclude={"password", "private_key", "private_key_passphrase"}),
+                "validated_config": validated_config.model_dump(
+                    exclude={"password", "private_key", "private_key_passphrase"}
+                ),
             },
             message=f"Configuration is valid for {warehouse_type.value}",
         )
