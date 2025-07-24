@@ -13,9 +13,9 @@ from libs.analytics_core.database import Base
 from libs.analytics_core.models import User
 from libs.ml_models import (
     ArtifactManager,
+    DatabaseExperimentTracker,
     ExperimentCreate,
     MetricCreate,
-    MyExperimentTracker,
     ParamCreate,
     RunCreate,
 )
@@ -78,7 +78,7 @@ class TestExperimentTracker:
         self, async_db_session: AsyncSession, test_user: User
     ):
         """Test creating a new experiment."""
-        tracker = MyExperimentTracker(async_db_session)
+        tracker = DatabaseExperimentTracker(async_db_session)
 
         experiment_data = ExperimentCreate(
             name="test_experiment",
@@ -99,7 +99,7 @@ class TestExperimentTracker:
         self, async_db_session: AsyncSession, test_user: User
     ):
         """Test listing experiments."""
-        tracker = MyExperimentTracker(async_db_session)
+        tracker = DatabaseExperimentTracker(async_db_session)
 
         # Create multiple experiments
         for i in range(3):
@@ -115,7 +115,7 @@ class TestExperimentTracker:
         self, async_db_session: AsyncSession, test_user: User
     ):
         """Test getting a specific experiment."""
-        tracker = MyExperimentTracker(async_db_session)
+        tracker = DatabaseExperimentTracker(async_db_session)
 
         experiment_data = ExperimentCreate(name="get_test_experiment")
         created_experiment = await tracker.create_experiment(
@@ -130,7 +130,7 @@ class TestExperimentTracker:
 
     async def test_create_run(self, async_db_session: AsyncSession, test_user: User):
         """Test creating an experiment run."""
-        tracker = MyExperimentTracker(async_db_session)
+        tracker = DatabaseExperimentTracker(async_db_session)
 
         experiment_data = ExperimentCreate(name="run_test_experiment")
         experiment = await tracker.create_experiment(experiment_data, test_user.id)
@@ -151,7 +151,7 @@ class TestExperimentTracker:
 
     async def test_log_metric(self, async_db_session: AsyncSession, test_user: User):
         """Test logging metrics for a run."""
-        tracker = MyExperimentTracker(async_db_session)
+        tracker = DatabaseExperimentTracker(async_db_session)
 
         experiment_data = ExperimentCreate(name="metric_test_experiment")
         experiment = await tracker.create_experiment(experiment_data, test_user.id)
@@ -172,7 +172,7 @@ class TestExperimentTracker:
 
     async def test_log_param(self, async_db_session: AsyncSession, test_user: User):
         """Test logging parameters for a run."""
-        tracker = MyExperimentTracker(async_db_session)
+        tracker = DatabaseExperimentTracker(async_db_session)
 
         experiment_data = ExperimentCreate(name="param_test_experiment")
         experiment = await tracker.create_experiment(experiment_data, test_user.id)
@@ -191,7 +191,7 @@ class TestExperimentTracker:
 
     async def test_finish_run(self, async_db_session: AsyncSession, test_user: User):
         """Test finishing a run."""
-        tracker = MyExperimentTracker(async_db_session)
+        tracker = DatabaseExperimentTracker(async_db_session)
 
         experiment_data = ExperimentCreate(name="finish_test_experiment")
         experiment = await tracker.create_experiment(experiment_data, test_user.id)
@@ -210,7 +210,7 @@ class TestExperimentTracker:
 
     async def test_compare_runs(self, async_db_session: AsyncSession, test_user: User):
         """Test comparing multiple runs."""
-        tracker = MyExperimentTracker(async_db_session)
+        tracker = DatabaseExperimentTracker(async_db_session)
 
         experiment_data = ExperimentCreate(name="compare_test_experiment")
         experiment = await tracker.create_experiment(experiment_data, test_user.id)
@@ -423,7 +423,7 @@ def test_experiment_tracker_integration():
             await session.refresh(user)
 
             # Test complete workflow
-            tracker = MyExperimentTracker(session)
+            tracker = DatabaseExperimentTracker(session)
 
             # 1. Create experiment
             exp_data = ExperimentCreate(name="integration_test")

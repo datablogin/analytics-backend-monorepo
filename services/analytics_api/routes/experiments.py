@@ -12,6 +12,7 @@ from fastapi import (
     Response,
     UploadFile,
 )
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from libs.analytics_core.auth import get_current_user
@@ -19,10 +20,10 @@ from libs.analytics_core.database import get_db_session
 from libs.analytics_core.models import User
 from libs.api_common.response_models import APIMetadata, StandardResponse
 from libs.ml_models import (
+    DatabaseExperimentTracker,
     ExperimentCreate,
     ExperimentResponse,
     MetricCreate,
-    MyExperimentTracker,
     ParamCreate,
     RunCreate,
     RunResponse,
@@ -40,7 +41,7 @@ async def create_experiment(
     current_user: User = Depends(get_current_user),
 ) -> StandardResponse[ExperimentResponse]:
     """Create a new ML experiment."""
-    tracker = MyExperimentTracker(db)
+    tracker = DatabaseExperimentTracker(db)
 
     try:
         experiment = await tracker.create_experiment(
@@ -57,8 +58,10 @@ async def create_experiment(
                 environment="development",
             ),
         )
-    except Exception as e:
+    except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+    except SQLAlchemyError:
+        raise HTTPException(status_code=500, detail="Database error occurred")
 
 
 @router.get("", response_model=StandardResponse[list[ExperimentResponse]])
@@ -70,7 +73,7 @@ async def list_experiments(
     current_user: User = Depends(get_current_user),
 ) -> StandardResponse[list[ExperimentResponse]]:
     """List ML experiments with pagination."""
-    tracker = MyExperimentTracker(db)
+    tracker = DatabaseExperimentTracker(db)
 
     experiments = await tracker.list_experiments(limit=limit, offset=offset)
 
@@ -94,7 +97,7 @@ async def get_experiment(
     current_user: User = Depends(get_current_user),
 ) -> StandardResponse[ExperimentResponse]:
     """Get a specific experiment by ID."""
-    tracker = MyExperimentTracker(db)
+    tracker = DatabaseExperimentTracker(db)
 
     experiment = await tracker.get_experiment(experiment_id)
 
@@ -122,7 +125,7 @@ async def create_run(
     current_user: User = Depends(get_current_user),
 ) -> StandardResponse[RunResponse]:
     """Create a new experiment run."""
-    tracker = MyExperimentTracker(db)
+    tracker = DatabaseExperimentTracker(db)
 
     try:
         run = await tracker.create_run(experiment_id, run_data)
@@ -139,8 +142,10 @@ async def create_run(
         )
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
-    except Exception as e:
+    except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+    except SQLAlchemyError:
+        raise HTTPException(status_code=500, detail="Database error occurred")
 
 
 @router.get("/{experiment_id}/runs", response_model=StandardResponse[list[RunResponse]])
@@ -153,7 +158,7 @@ async def list_runs(
     current_user: User = Depends(get_current_user),
 ) -> StandardResponse[list[RunResponse]]:
     """List runs for an experiment."""
-    tracker = MyExperimentTracker(db)
+    tracker = DatabaseExperimentTracker(db)
 
     runs = await tracker.list_runs(experiment_id, limit=limit, offset=offset)
 
@@ -178,7 +183,7 @@ async def log_metric(
     current_user: User = Depends(get_current_user),
 ) -> StandardResponse[dict]:
     """Log a metric for an experiment run."""
-    tracker = MyExperimentTracker(db)
+    tracker = DatabaseExperimentTracker(db)
 
     try:
         await tracker.log_metric(run_uuid, metric)
@@ -193,8 +198,10 @@ async def log_metric(
                 environment="development",
             ),
         )
-    except Exception as e:
+    except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+    except SQLAlchemyError:
+        raise HTTPException(status_code=500, detail="Database error occurred")
 
 
 @router.post("/runs/{run_uuid}/params", response_model=StandardResponse[dict])
@@ -206,7 +213,7 @@ async def log_param(
     current_user: User = Depends(get_current_user),
 ) -> StandardResponse[dict]:
     """Log a parameter for an experiment run."""
-    tracker = MyExperimentTracker(db)
+    tracker = DatabaseExperimentTracker(db)
 
     try:
         await tracker.log_param(run_uuid, param)
@@ -221,8 +228,10 @@ async def log_param(
                 environment="development",
             ),
         )
-    except Exception as e:
+    except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+    except SQLAlchemyError:
+        raise HTTPException(status_code=500, detail="Database error occurred")
 
 
 @router.put("/runs/{run_uuid}/finish", response_model=StandardResponse[dict])
@@ -234,7 +243,7 @@ async def finish_run(
     current_user: User = Depends(get_current_user),
 ) -> StandardResponse[dict]:
     """Finish an experiment run."""
-    tracker = MyExperimentTracker(db)
+    tracker = DatabaseExperimentTracker(db)
 
     try:
         await tracker.finish_run(run_uuid, status)
@@ -249,8 +258,10 @@ async def finish_run(
                 environment="development",
             ),
         )
-    except Exception as e:
+    except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+    except SQLAlchemyError:
+        raise HTTPException(status_code=500, detail="Database error occurred")
 
 
 @router.get(
@@ -263,7 +274,7 @@ async def get_run_metrics(
     current_user: User = Depends(get_current_user),
 ) -> StandardResponse[list[dict[str, Any]]]:
     """Get all metrics for an experiment run."""
-    tracker = MyExperimentTracker(db)
+    tracker = DatabaseExperimentTracker(db)
 
     metrics = await tracker.get_run_metrics(run_uuid)
 
@@ -287,7 +298,7 @@ async def get_run_params(
     current_user: User = Depends(get_current_user),
 ) -> StandardResponse[dict[str, str]]:
     """Get all parameters for an experiment run."""
-    tracker = MyExperimentTracker(db)
+    tracker = DatabaseExperimentTracker(db)
 
     params = await tracker.get_run_params(run_uuid)
 
@@ -311,12 +322,12 @@ async def compare_runs(
     current_user: User = Depends(get_current_user),
 ) -> StandardResponse[dict[str, Any]]:
     """Compare multiple experiment runs."""
-    if len(run_uuids) < 2:
+    if len(run_uuids) < 2 or len(run_uuids) > 100:
         raise HTTPException(
-            status_code=400, detail="At least 2 runs are required for comparison"
+            status_code=400, detail="Between 2-100 runs are required for comparison"
         )
 
-    tracker = MyExperimentTracker(db)
+    tracker = DatabaseExperimentTracker(db)
 
     comparison = await tracker.compare_runs(run_uuids)
 
@@ -371,8 +382,10 @@ async def upload_artifact(
                 environment="development",
             ),
         )
-    except Exception as e:
+    except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+    except SQLAlchemyError:
+        raise HTTPException(status_code=500, detail="Database error occurred")
 
 
 @router.get(

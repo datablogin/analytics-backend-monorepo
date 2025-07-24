@@ -32,7 +32,7 @@ from libs.observability import (
     get_observability_config,
     trace_function,
 )
-from services.analytics_api.routes import admin, auth, data_quality, experiments
+from services.analytics_api.routes import admin, auth, data_quality, experiments, models
 
 
 @asynccontextmanager
@@ -111,6 +111,7 @@ v1_router.include_router(auth.router)
 v1_router.include_router(admin.router)
 v1_router.include_router(data_quality.router)
 v1_router.include_router(experiments.router)
+v1_router.include_router(models.router)
 
 # Include versioned routers
 app.include_router(v1_router)

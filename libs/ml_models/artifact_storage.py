@@ -3,7 +3,7 @@
 import hashlib
 import json
 import shutil
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 from pydantic import BaseModel
@@ -95,9 +95,25 @@ class ArtifactManager:
         artifacts_path = self._get_run_artifacts_path(run_uuid)
         artifacts_path.mkdir(parents=True, exist_ok=True)
 
-        # Determine storage path
+        # Determine storage path with security validation
         if artifact_path:
+            # Validate no path traversal attempts
+            if (
+                ".." in artifact_path
+                or artifact_path.startswith("/")
+                or "\\" in artifact_path
+            ):
+                raise ValueError("Invalid artifact path: path traversal not allowed")
+
+            # Ensure the resolved path is within the artifacts directory
             storage_path = artifacts_path / artifact_path
+            try:
+                storage_path.resolve().relative_to(artifacts_path.resolve())
+            except ValueError:
+                raise ValueError(
+                    "Invalid artifact path: must be within artifacts directory"
+                )
+
             storage_path.parent.mkdir(parents=True, exist_ok=True)
         else:
             storage_path = artifacts_path / artifact_name
@@ -115,7 +131,7 @@ class ArtifactManager:
             size=len(file_content),
             content_type=content_type,
             checksum=checksum,
-            upload_time=datetime.utcnow(),
+            upload_time=datetime.now(timezone.utc),
             run_uuid=run_uuid,
             artifact_path=artifact_path or artifact_name,
         )
