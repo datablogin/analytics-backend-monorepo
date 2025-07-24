@@ -168,7 +168,9 @@ async def create_experiment(
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         logger.error("Failed to create experiment", error=str(e))
-        raise HTTPException(status_code=500, detail=f"Failed to create experiment: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Failed to create experiment: {str(e)}"
+        )
 
 
 @router.post("/{experiment_id}/start", response_model=StandardResponse[dict])
@@ -183,7 +185,9 @@ async def start_experiment(
     """Start an A/B test experiment."""
     try:
         # Update experiment dates if provided
-        experiment = await engine.get_experiment(experiment_uuid=experiment_id, session=db)
+        experiment = await engine.get_experiment(
+            experiment_uuid=experiment_id, session=db
+        )
         if not experiment:
             raise HTTPException(status_code=404, detail="Experiment not found")
 
@@ -193,7 +197,9 @@ async def start_experiment(
             experiment.end_date = start_request.end_date
 
         # Start experiment
-        success = await engine.start_experiment(experiment_uuid=experiment_id, session=db)
+        success = await engine.start_experiment(
+            experiment_uuid=experiment_id, session=db
+        )
 
         if not success:
             raise HTTPException(status_code=400, detail="Failed to start experiment")
@@ -209,8 +215,12 @@ async def start_experiment(
             data={
                 "experiment_id": experiment_id,
                 "status": "running",
-                "start_date": experiment.start_date.isoformat() if experiment.start_date else None,
-                "end_date": experiment.end_date.isoformat() if experiment.end_date else None,
+                "start_date": experiment.start_date.isoformat()
+                if experiment.start_date
+                else None,
+                "end_date": experiment.end_date.isoformat()
+                if experiment.end_date
+                else None,
             },
             message="Experiment started successfully",
             metadata=APIMetadata(
@@ -223,8 +233,12 @@ async def start_experiment(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error("Failed to start experiment", experiment_id=experiment_id, error=str(e))
-        raise HTTPException(status_code=500, detail=f"Failed to start experiment: {str(e)}")
+        logger.error(
+            "Failed to start experiment", experiment_id=experiment_id, error=str(e)
+        )
+        raise HTTPException(
+            status_code=500, detail=f"Failed to start experiment: {str(e)}"
+        )
 
 
 @router.post("/{experiment_id}/assign", response_model=StandardResponse[dict])
@@ -242,7 +256,7 @@ async def assign_user_to_variant(
             experiment_uuid=experiment_id,
             user_id=assign_request.user_id,
             session=db,
-            user_attributes=assign_request.user_attributes
+            user_attributes=assign_request.user_attributes,
         )
 
         if not variant:
@@ -267,7 +281,7 @@ async def assign_user_to_variant(
             experiment_uuid=experiment_id,
             user_id=assign_request.user_id,
             session=db,
-            user_attributes=assign_request.user_attributes
+            user_attributes=assign_request.user_attributes,
         )
 
         return StandardResponse(
@@ -314,7 +328,7 @@ async def track_experiment_event(
             event_type=event_request.event_type,
             session=db,
             event_value=event_request.event_value,
-            properties=event_request.properties
+            properties=event_request.properties,
         )
 
         if not success:
@@ -377,7 +391,7 @@ async def analyze_experiment(
         results = await engine.analyze_experiment(
             experiment_uuid=experiment_id,
             session=db,
-            test_type=analyze_request.test_type.value
+            test_type=analyze_request.test_type.value,
         )
 
         logger.info(
@@ -404,7 +418,9 @@ async def analyze_experiment(
             experiment_id=experiment_id,
             error=str(e),
         )
-        raise HTTPException(status_code=500, detail=f"Failed to analyze experiment: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Failed to analyze experiment: {str(e)}"
+        )
 
 
 @router.get("/{experiment_id}/stopping-criteria", response_model=StandardResponse[dict])
@@ -417,7 +433,9 @@ async def check_stopping_criteria(
 ) -> StandardResponse[dict]:
     """Check if experiment should be stopped."""
     try:
-        criteria_result = await engine.check_stopping_criteria(experiment_uuid=experiment_id, session=db)
+        criteria_result = await engine.check_stopping_criteria(
+            experiment_uuid=experiment_id, session=db
+        )
 
         return StandardResponse(
             success=True,
@@ -436,7 +454,9 @@ async def check_stopping_criteria(
             experiment_id=experiment_id,
             error=str(e),
         )
-        raise HTTPException(status_code=500, detail=f"Failed to check stopping criteria: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Failed to check stopping criteria: {str(e)}"
+        )
 
 
 @router.post("/{experiment_id}/stop", response_model=StandardResponse[dict])
@@ -450,12 +470,16 @@ async def stop_experiment(
 ) -> StandardResponse[dict]:
     """Stop a running experiment."""
     try:
-        success = await engine.stop_experiment(experiment_uuid=experiment_id, reason=reason, session=db)
+        success = await engine.stop_experiment(
+            experiment_uuid=experiment_id, reason=reason, session=db
+        )
 
         if not success:
             raise HTTPException(status_code=400, detail="Failed to stop experiment")
 
-        experiment = await engine.get_experiment(experiment_uuid=experiment_id, session=db)
+        experiment = await engine.get_experiment(
+            experiment_uuid=experiment_id, session=db
+        )
 
         logger.info(
             "A/B test experiment stopped via API",
@@ -472,7 +496,9 @@ async def stop_experiment(
                 "reason": reason,
                 "winner": experiment.winner if experiment else None,
                 "confidence": experiment.confidence if experiment else None,
-                "end_date": experiment.end_date.isoformat() if experiment and experiment.end_date else None,
+                "end_date": experiment.end_date.isoformat()
+                if experiment and experiment.end_date
+                else None,
             },
             message="Experiment stopped successfully",
             metadata=APIMetadata(
@@ -485,8 +511,12 @@ async def stop_experiment(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error("Failed to stop experiment", experiment_id=experiment_id, error=str(e))
-        raise HTTPException(status_code=500, detail=f"Failed to stop experiment: {str(e)}")
+        logger.error(
+            "Failed to stop experiment", experiment_id=experiment_id, error=str(e)
+        )
+        raise HTTPException(
+            status_code=500, detail=f"Failed to stop experiment: {str(e)}"
+        )
 
 
 @router.get("/{experiment_id}", response_model=StandardResponse[dict])
@@ -499,7 +529,9 @@ async def get_experiment(
 ) -> StandardResponse[dict]:
     """Get experiment details."""
     try:
-        experiment = await engine.get_experiment(experiment_uuid=experiment_id, session=db)
+        experiment = await engine.get_experiment(
+            experiment_uuid=experiment_id, session=db
+        )
 
         if not experiment:
             raise HTTPException(status_code=404, detail="Experiment not found")
@@ -518,8 +550,12 @@ async def get_experiment(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error("Failed to get experiment", experiment_id=experiment_id, error=str(e))
-        raise HTTPException(status_code=500, detail=f"Failed to get experiment: {str(e)}")
+        logger.error(
+            "Failed to get experiment", experiment_id=experiment_id, error=str(e)
+        )
+        raise HTTPException(
+            status_code=500, detail=f"Failed to get experiment: {str(e)}"
+        )
 
 
 @router.get("", response_model=StandardResponse[list[ExperimentSummary]])
@@ -534,7 +570,9 @@ async def list_experiments(
 ) -> StandardResponse[list[ExperimentSummary]]:
     """List A/B test experiments."""
     try:
-        experiments = await engine.list_experiments(session=db, status=status.value if status else None, created_by=created_by)
+        experiments = await engine.list_experiments(
+            session=db, status=status.value if status else None, created_by=created_by
+        )
 
         # Convert to summary format
         summaries = []
@@ -572,7 +610,9 @@ async def list_experiments(
 
     except Exception as e:
         logger.error("Failed to list experiments", error=str(e))
-        raise HTTPException(status_code=500, detail=f"Failed to list experiments: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Failed to list experiments: {str(e)}"
+        )
 
 
 @router.delete("/{experiment_id}", response_model=StandardResponse[dict])
@@ -585,7 +625,9 @@ async def delete_experiment(
 ) -> StandardResponse[dict]:
     """Delete an experiment (archive)."""
     try:
-        experiment = await engine.get_experiment(experiment_uuid=experiment_id, session=db)
+        experiment = await engine.get_experiment(
+            experiment_uuid=experiment_id, session=db
+        )
 
         if not experiment:
             raise HTTPException(status_code=404, detail="Experiment not found")
@@ -618,5 +660,9 @@ async def delete_experiment(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error("Failed to archive experiment", experiment_id=experiment_id, error=str(e))
-        raise HTTPException(status_code=500, detail=f"Failed to archive experiment: {str(e)}")
+        logger.error(
+            "Failed to archive experiment", experiment_id=experiment_id, error=str(e)
+        )
+        raise HTTPException(
+            status_code=500, detail=f"Failed to archive experiment: {str(e)}"
+        )

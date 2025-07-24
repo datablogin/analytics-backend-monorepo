@@ -86,9 +86,15 @@ class BayesianTestResult(BaseModel):
     probability_b_better: float = Field(description="Probability that B > A")
     expected_loss_a: float = Field(description="Expected loss if choosing A")
     expected_loss_b: float = Field(description="Expected loss if choosing B")
-    credible_interval_diff: tuple[float, float] = Field(description="95% credible interval for difference")
-    rope_probability: float | None = Field(default=None, description="Probability of practical equivalence")
-    rope_bounds: tuple[float, float] | None = Field(default=None, description="Region of practical equivalence")
+    credible_interval_diff: tuple[float, float] = Field(
+        description="95% credible interval for difference"
+    )
+    rope_probability: float | None = Field(
+        default=None, description="Probability of practical equivalence"
+    )
+    rope_bounds: tuple[float, float] | None = Field(
+        default=None, description="Region of practical equivalence"
+    )
 
 
 class StatisticalAnalyzer:
@@ -103,7 +109,7 @@ class StatisticalAnalyzer:
         group_a: list[float],
         group_b: list[float],
         equal_var: bool = True,
-        alpha: float = 0.05
+        alpha: float = 0.05,
     ) -> StatisticalTest:
         """Perform two-sample t-test."""
         try:
@@ -124,9 +130,9 @@ class StatisticalAnalyzer:
 
             # Calculate confidence interval for difference in means
             diff_mean = np.mean(b) - np.mean(a)
-            se_diff = np.sqrt(np.var(a, ddof=1)/len(a) + np.var(b, ddof=1)/len(b))
+            se_diff = np.sqrt(np.var(a, ddof=1) / len(a) + np.var(b, ddof=1) / len(b))
             df = len(a) + len(b) - 2 if equal_var else self._welch_df(a, b)
-            t_critical = stats.t.ppf(1 - alpha/2, df)
+            t_critical = stats.t.ppf(1 - alpha / 2, df)
             ci_lower = diff_mean - t_critical * se_diff
             ci_upper = diff_mean + t_critical * se_diff
 
@@ -140,7 +146,7 @@ class StatisticalAnalyzer:
                 degrees_of_freedom=df,
                 sample_size_a=len(a),
                 sample_size_b=len(b),
-                alpha=alpha
+                alpha=alpha,
             )
 
         except Exception as error:
@@ -148,17 +154,14 @@ class StatisticalAnalyzer:
             raise
 
     def mann_whitney_u(
-        self,
-        group_a: list[float],
-        group_b: list[float],
-        alpha: float = 0.05
+        self, group_a: list[float], group_b: list[float], alpha: float = 0.05
     ) -> StatisticalTest:
         """Perform Mann-Whitney U test (non-parametric)."""
         try:
             a = np.array(group_a)
             b = np.array(group_b)
 
-            statistic, p_value = stats.mannwhitneyu(a, b, alternative='two-sided')
+            statistic, p_value = stats.mannwhitneyu(a, b, alternative="two-sided")
 
             # Calculate effect size (rank-biserial correlation)
             n1, n2 = len(a), len(b)
@@ -172,7 +175,7 @@ class StatisticalAnalyzer:
                 effect_size_type=EffectSizeType.GLASS_DELTA,  # Using as proxy
                 sample_size_a=n1,
                 sample_size_b=n2,
-                alpha=alpha
+                alpha=alpha,
             )
 
         except Exception as error:
@@ -185,7 +188,7 @@ class StatisticalAnalyzer:
         trials_a: int,
         successes_b: int,
         trials_b: int,
-        alpha: float = 0.05
+        alpha: float = 0.05,
     ) -> StatisticalTest:
         """Perform two-proportion z-test."""
         try:
@@ -203,8 +206,8 @@ class StatisticalAnalyzer:
 
             # Calculate confidence interval for difference
             p_pooled = (successes_a + successes_b) / (trials_a + trials_b)
-            se_diff = np.sqrt(p_pooled * (1 - p_pooled) * (1/trials_a + 1/trials_b))
-            z_critical = stats.norm.ppf(1 - alpha/2)
+            se_diff = np.sqrt(p_pooled * (1 - p_pooled) * (1 / trials_a + 1 / trials_b))
+            z_critical = stats.norm.ppf(1 - alpha / 2)
             ci_lower = effect_size - z_critical * se_diff
             ci_upper = effect_size + z_critical * se_diff
 
@@ -216,7 +219,7 @@ class StatisticalAnalyzer:
                 confidence_interval=(ci_lower, ci_upper),
                 sample_size_a=trials_a,
                 sample_size_b=trials_b,
-                alpha=alpha
+                alpha=alpha,
             )
 
         except Exception as error:
@@ -224,9 +227,7 @@ class StatisticalAnalyzer:
             raise
 
     def chi_square_test(
-        self,
-        contingency_table: list[list[int]],
-        alpha: float = 0.05
+        self, contingency_table: list[list[int]], alpha: float = 0.05
     ) -> StatisticalTest:
         """Perform chi-square test of independence."""
         try:
@@ -244,7 +245,7 @@ class StatisticalAnalyzer:
                 effect_size=cramers_v,
                 effect_size_type=EffectSizeType.CRAMERS_V,
                 degrees_of_freedom=float(dof),
-                alpha=alpha
+                alpha=alpha,
             )
 
         except Exception as error:
@@ -273,8 +274,8 @@ class StatisticalAnalyzer:
         s1, s2 = np.var(a, ddof=1), np.var(b, ddof=1)
         n1, n2 = len(a), len(b)
 
-        numerator = (s1/n1 + s2/n2)**2
-        denominator = (s1/n1)**2/(n1-1) + (s2/n2)**2/(n2-1)
+        numerator = (s1 / n1 + s2 / n2) ** 2
+        denominator = (s1 / n1) ** 2 / (n1 - 1) + (s2 / n2) ** 2 / (n2 - 1)
 
         return numerator / denominator
 
@@ -290,7 +291,7 @@ class StatisticalAnalyzer:
                     power=config.power,
                     alpha=config.alpha,
                     ratio=config.ratio,
-                    alternative='two-sided' if config.two_sided else 'larger'
+                    alternative="two-sided" if config.two_sided else "larger",
                 )
 
                 # Calculate power for given sample size
@@ -298,7 +299,7 @@ class StatisticalAnalyzer:
                     effect_size=config.effect_size,
                     nobs=sample_size,
                     alpha=config.alpha,
-                    alternative='two-sided' if config.two_sided else 'larger'
+                    alternative="two-sided" if config.two_sided else "larger",
                 )
 
                 return {
@@ -306,11 +307,13 @@ class StatisticalAnalyzer:
                     "total_sample_size": math.ceil(sample_size * (1 + config.ratio)),
                     "actual_power": actual_power,
                     "effect_size": config.effect_size,
-                    "alpha": config.alpha
+                    "alpha": config.alpha,
                 }
             else:
-                self.logger.warning("Power analysis not implemented for test type",
-                                   test_type=config.test_type)
+                self.logger.warning(
+                    "Power analysis not implemented for test type",
+                    test_type=config.test_type,
+                )
                 return {}
 
         except Exception as error:
@@ -323,13 +326,15 @@ class StatisticalAnalyzer:
         group_b: list[float],
         alpha: float = 0.05,
         beta: float = 0.2,
-        effect_size: float = 0.5
+        effect_size: float = 0.5,
     ) -> dict[str, Any]:
         """Perform sequential probability ratio test for early stopping."""
         try:
             n = len(group_a)
             if n != len(group_b):
-                raise ValueError("Groups must have equal sample sizes for sequential test")
+                raise ValueError(
+                    "Groups must have equal sample sizes for sequential test"
+                )
 
             # Calculate test statistic (standardized difference)
             mean_diff = np.mean(group_b) - np.mean(group_a)
@@ -339,7 +344,7 @@ class StatisticalAnalyzer:
 
             # Sequential boundaries
             a = np.log((1 - beta) / alpha)  # Upper boundary (reject H0)
-            b = np.log(beta / (1 - alpha))   # Lower boundary (accept H0)
+            b = np.log(beta / (1 - alpha))  # Lower boundary (accept H0)
 
             # Information function
             theta = effect_size / np.sqrt(2)  # Standardized effect size
@@ -365,7 +370,7 @@ class StatisticalAnalyzer:
                 "lower_boundary": lower_boundary,
                 "information": information,
                 "sample_size": n,
-                "continue_sampling": decision == "continue"
+                "continue_sampling": decision == "continue",
             }
 
         except Exception as error:
@@ -379,7 +384,7 @@ class StatisticalAnalyzer:
         prior_mean: float = 0,
         prior_std: float = 1,
         rope_bounds: tuple[float, float] | None = None,
-        n_samples: int = 10000
+        n_samples: int = 10000,
     ) -> BayesianTestResult:
         """Perform Bayesian A/B test."""
         try:
@@ -390,23 +395,25 @@ class StatisticalAnalyzer:
 
             with pm.Model():
                 # Priors
-                mu_a = pm.Normal('mu_a', mu=prior_mean, sigma=prior_std)
-                mu_b = pm.Normal('mu_b', mu=prior_mean, sigma=prior_std)
-                sigma_a = pm.HalfNormal('sigma_a', sigma=1)
-                sigma_b = pm.HalfNormal('sigma_b', sigma=1)
+                mu_a = pm.Normal("mu_a", mu=prior_mean, sigma=prior_std)
+                mu_b = pm.Normal("mu_b", mu=prior_mean, sigma=prior_std)
+                sigma_a = pm.HalfNormal("sigma_a", sigma=1)
+                sigma_b = pm.HalfNormal("sigma_b", sigma=1)
 
                 # Likelihoods
-                pm.Normal('obs_a', mu=mu_a, sigma=sigma_a, observed=a)
-                pm.Normal('obs_b', mu=mu_b, sigma=sigma_b, observed=b)
+                pm.Normal("obs_a", mu=mu_a, sigma=sigma_a, observed=a)
+                pm.Normal("obs_b", mu=mu_b, sigma=sigma_b, observed=b)
 
                 # Difference
-                pm.Deterministic('diff', mu_b - mu_a)
+                pm.Deterministic("diff", mu_b - mu_a)
 
                 # Sample
-                trace = pm.sample(n_samples, return_inferencedata=True, progressbar=False)
+                trace = pm.sample(
+                    n_samples, return_inferencedata=True, progressbar=False
+                )
 
             # Extract posterior samples
-            diff_samples = trace.posterior['diff'].values.flatten()
+            diff_samples = trace.posterior["diff"].values.flatten()
 
             # Calculate probabilities
             prob_b_better = np.mean(diff_samples > 0)
@@ -422,8 +429,9 @@ class StatisticalAnalyzer:
             # ROPE analysis if bounds provided
             rope_prob = None
             if rope_bounds:
-                rope_prob = np.mean((diff_samples >= rope_bounds[0]) &
-                                   (diff_samples <= rope_bounds[1]))
+                rope_prob = np.mean(
+                    (diff_samples >= rope_bounds[0]) & (diff_samples <= rope_bounds[1])
+                )
 
             return BayesianTestResult(
                 probability_a_better=prob_a_better,
@@ -432,7 +440,7 @@ class StatisticalAnalyzer:
                 expected_loss_b=expected_loss_b,
                 credible_interval_diff=(ci_lower, ci_upper),
                 rope_probability=rope_prob,
-                rope_bounds=rope_bounds
+                rope_bounds=rope_bounds,
             )
 
         except ImportError:
@@ -446,18 +454,18 @@ class StatisticalAnalyzer:
         self,
         p_values: list[float],
         method: MultipleComparisonMethod = MultipleComparisonMethod.BENJAMINI_HOCHBERG,
-        alpha: float = 0.05
+        alpha: float = 0.05,
     ) -> dict[str, Any]:
         """Apply multiple comparison correction."""
         try:
             from statsmodels.stats.multitest import multipletests
 
             method_map = {
-                MultipleComparisonMethod.BONFERRONI: 'bonferroni',
-                MultipleComparisonMethod.HOLM: 'holm',
-                MultipleComparisonMethod.BENJAMINI_HOCHBERG: 'fdr_bh',
-                MultipleComparisonMethod.BENJAMINI_YEKUTIELI: 'fdr_by',
-                MultipleComparisonMethod.SIDAK: 'sidak'
+                MultipleComparisonMethod.BONFERRONI: "bonferroni",
+                MultipleComparisonMethod.HOLM: "holm",
+                MultipleComparisonMethod.BENJAMINI_HOCHBERG: "fdr_bh",
+                MultipleComparisonMethod.BENJAMINI_YEKUTIELI: "fdr_by",
+                MultipleComparisonMethod.SIDAK: "sidak",
             }
 
             reject, p_corrected, alpha_sidak, alpha_bonf = multipletests(
@@ -470,7 +478,9 @@ class StatisticalAnalyzer:
                 "reject_null": reject.tolist(),
                 "method": method.value,
                 "original_alpha": alpha,
-                "effective_alpha": alpha_bonf if method == MultipleComparisonMethod.BONFERRONI else alpha
+                "effective_alpha": alpha_bonf
+                if method == MultipleComparisonMethod.BONFERRONI
+                else alpha,
             }
 
         except Exception as error:
@@ -483,7 +493,7 @@ class StatisticalAnalyzer:
         alpha: float = 0.05,
         power: float = 0.8,
         baseline_mean: float | None = None,
-        baseline_std: float | None = None
+        baseline_std: float | None = None,
     ) -> dict[str, float]:
         """Calculate minimum detectable effect for given sample size."""
         try:
@@ -494,18 +504,20 @@ class StatisticalAnalyzer:
                 nobs=sample_size,
                 alpha=alpha,
                 power=power,
-                alternative='two-sided'
+                alternative="two-sided",
             )
 
             # Convert to practical units if baseline provided
             if baseline_mean is not None and baseline_std is not None:
                 practical_effect = effect_size * baseline_std
-                relative_effect = practical_effect / baseline_mean if baseline_mean != 0 else 0
+                relative_effect = (
+                    practical_effect / baseline_mean if baseline_mean != 0 else 0
+                )
 
                 return {
                     "effect_size_cohens_d": effect_size,
                     "practical_effect": practical_effect,
-                    "relative_effect_percent": relative_effect * 100
+                    "relative_effect_percent": relative_effect * 100,
                 }
 
             return {"effect_size_cohens_d": effect_size}

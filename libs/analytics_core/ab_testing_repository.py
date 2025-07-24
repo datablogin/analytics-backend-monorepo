@@ -45,7 +45,9 @@ class ABTestRepository:
             self.logger.error("Failed to create experiment", error=str(error))
             raise
 
-    async def get_experiment_by_uuid(self, experiment_uuid: str) -> ABTestExperiment | None:
+    async def get_experiment_by_uuid(
+        self, experiment_uuid: str
+    ) -> ABTestExperiment | None:
         """Get experiment by UUID."""
         try:
             result = await self.session.execute(
@@ -140,7 +142,9 @@ class ABTestRepository:
             self.logger.error("Failed to list experiments", error=str(error))
             raise
 
-    async def create_assignment(self, assignment_data: dict[str, Any]) -> ABTestAssignment:
+    async def create_assignment(
+        self, assignment_data: dict[str, Any]
+    ) -> ABTestAssignment:
         """Create a new user assignment."""
         try:
             assignment = ABTestAssignment(**assignment_data)
@@ -214,7 +218,9 @@ class ABTestRepository:
     ) -> list[ABTestEvent]:
         """Get all events for an experiment."""
         try:
-            query = select(ABTestEvent).where(ABTestEvent.experiment_id == experiment_id)
+            query = select(ABTestEvent).where(
+                ABTestEvent.experiment_id == experiment_id
+            )
 
             if event_type:
                 query = query.where(ABTestEvent.event_type == event_type)

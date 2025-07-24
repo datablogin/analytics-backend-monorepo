@@ -51,8 +51,7 @@ class TestStatisticalAnalyzer:
     def test_proportion_test(self):
         """Test proportion z-test."""
         result = self.analyzer.proportion_test(
-            successes_a=50, trials_a=200,
-            successes_b=75, trials_b=200
+            successes_a=50, trials_a=200, successes_b=75, trials_b=200
         )
 
         assert result.test_type == TestType.PROPORTION_ZTEST
@@ -62,11 +61,7 @@ class TestStatisticalAnalyzer:
 
     def test_power_analysis(self):
         """Test power analysis for sample size calculation."""
-        config = PowerAnalysisConfig(
-            effect_size=0.5,
-            alpha=0.05,
-            power=0.8
-        )
+        config = PowerAnalysisConfig(effect_size=0.5, alpha=0.05, power=0.8)
 
         result = self.analyzer.power_analysis(config)
 
@@ -97,9 +92,7 @@ class TestStatisticalAnalyzer:
         group_a = np.random.normal(10, 2, 50).tolist()
         group_b = np.random.normal(12, 2, 50).tolist()
 
-        result = self.analyzer.sequential_test(
-            group_a, group_b, effect_size=1.0
-        )
+        result = self.analyzer.sequential_test(group_a, group_b, effect_size=1.0)
 
         assert "decision" in result
         assert result["decision"] in ["continue", "reject_h0", "accept_h0"]
@@ -117,7 +110,7 @@ class TestABTestingEngine:
         self.experiment_tracker = MagicMock()
         self.engine = ABTestingEngine(
             feature_flag_manager=self.feature_flag_manager,
-            experiment_tracker=self.experiment_tracker
+            experiment_tracker=self.experiment_tracker,
         )
 
     def test_create_experiment(self):
@@ -128,15 +121,15 @@ class TestABTestingEngine:
                 description="Control variant",
                 traffic_allocation=50.0,
                 feature_value=False,
-                is_control=True
+                is_control=True,
             ),
             ExperimentVariant(
                 name="treatment",
                 description="Treatment variant",
                 traffic_allocation=50.0,
                 feature_value=True,
-                is_control=False
-            )
+                is_control=False,
+            ),
         ]
 
         experiment = ABTestExperiment(
@@ -147,7 +140,7 @@ class TestABTestingEngine:
             hypothesis="Treatment will increase conversion rate",
             variants=variants,
             primary_metric="conversion_rate",
-            created_by="test_user"
+            created_by="test_user",
         )
 
         # Mock MLflow experiment creation
@@ -295,7 +288,9 @@ class TestABTestingEngine:
 
         assert control_data["sample_size"] > 0
         assert treatment_data["sample_size"] > 0
-        assert treatment_data["mean"] > control_data["mean"]  # Treatment should perform better
+        assert (
+            treatment_data["mean"] > control_data["mean"]
+        )  # Treatment should perform better
 
         # Check statistical tests
         assert "control_vs_treatment" in results["statistical_tests"]
@@ -310,7 +305,7 @@ class TestABTestingEngine:
             min_sample_size=50,
             max_duration_days=30,
             significance_threshold=0.05,
-            power_threshold=0.8
+            power_threshold=0.8,
         )
 
         experiment = self._create_test_experiment()
@@ -363,8 +358,18 @@ class TestABTestingEngine:
         """Test validation of invalid experiment configurations."""
         # Test invalid traffic allocation
         variants = [
-            ExperimentVariant(name="control", traffic_allocation=60.0, feature_value=False, is_control=True),
-            ExperimentVariant(name="treatment", traffic_allocation=60.0, feature_value=True, is_control=False)
+            ExperimentVariant(
+                name="control",
+                traffic_allocation=60.0,
+                feature_value=False,
+                is_control=True,
+            ),
+            ExperimentVariant(
+                name="treatment",
+                traffic_allocation=60.0,
+                feature_value=True,
+                is_control=False,
+            ),
         ]
 
         experiment = ABTestExperiment(
@@ -373,7 +378,7 @@ class TestABTestingEngine:
             objective=ExperimentObjective.CONVERSION_RATE,
             hypothesis="Test hypothesis",
             variants=variants,
-            primary_metric="conversion_rate"
+            primary_metric="conversion_rate",
         )
 
         with pytest.raises(ValueError, match="Traffic allocation must sum to 100%"):
@@ -381,13 +386,25 @@ class TestABTestingEngine:
 
         # Test no control variant
         variants = [
-            ExperimentVariant(name="variant1", traffic_allocation=50.0, feature_value=False, is_control=False),
-            ExperimentVariant(name="variant2", traffic_allocation=50.0, feature_value=True, is_control=False)
+            ExperimentVariant(
+                name="variant1",
+                traffic_allocation=50.0,
+                feature_value=False,
+                is_control=False,
+            ),
+            ExperimentVariant(
+                name="variant2",
+                traffic_allocation=50.0,
+                feature_value=True,
+                is_control=False,
+            ),
         ]
 
         experiment.variants = variants
 
-        with pytest.raises(ValueError, match="Exactly one variant must be marked as control"):
+        with pytest.raises(
+            ValueError, match="Exactly one variant must be marked as control"
+        ):
             self.engine.create_experiment(experiment)
 
     def test_list_experiments(self):
@@ -407,7 +424,9 @@ class TestABTestingEngine:
         assert len(experiments) >= 2
 
         # Test filter by status
-        running_experiments = self.engine.list_experiments(status=ExperimentStatus.RUNNING)
+        running_experiments = self.engine.list_experiments(
+            status=ExperimentStatus.RUNNING
+        )
         assert len(running_experiments) == 1
         assert running_experiments[0].name == "experiment_2"
 
@@ -424,15 +443,15 @@ class TestABTestingEngine:
                 description="Control variant",
                 traffic_allocation=50.0,
                 feature_value=False,
-                is_control=True
+                is_control=True,
             ),
             ExperimentVariant(
                 name="treatment",
                 description="Treatment variant",
                 traffic_allocation=50.0,
                 feature_value=True,
-                is_control=False
-            )
+                is_control=False,
+            ),
         ]
 
         experiment = ABTestExperiment(
@@ -443,11 +462,13 @@ class TestABTestingEngine:
             hypothesis="Treatment will increase conversion rate",
             variants=variants,
             primary_metric="conversion_rate",
-            created_by="test_user"
+            created_by="test_user",
         )
 
         # Mock MLflow experiment creation
-        self.experiment_tracker.create_experiment.return_value = f"mlflow_exp_{uuid.uuid4().hex[:8]}"
+        self.experiment_tracker.create_experiment.return_value = (
+            f"mlflow_exp_{uuid.uuid4().hex[:8]}"
+        )
 
         return self.engine.create_experiment(experiment)
 
@@ -460,7 +481,9 @@ class TestABTestingAPI:
         self.client = TestClient(app)
 
         # Mock authentication
-        with patch("services.analytics_api.routes.ab_testing.get_current_user") as mock_auth:
+        with patch(
+            "services.analytics_api.routes.ab_testing.get_current_user"
+        ) as mock_auth:
             mock_user = MagicMock()
             mock_user.username = "testuser"
             mock_user.id = 1
@@ -482,29 +505,31 @@ class TestABTestingAPI:
                     "description": "Control variant",
                     "traffic_allocation": 50.0,
                     "feature_value": False,
-                    "is_control": True
+                    "is_control": True,
                 },
                 {
                     "name": "treatment",
                     "description": "Treatment variant",
                     "traffic_allocation": 50.0,
                     "feature_value": True,
-                    "is_control": False
-                }
+                    "is_control": False,
+                },
             ],
             "primary_metric": "conversion_rate",
             "secondary_metrics": ["revenue", "engagement"],
             "significance_level": 0.05,
-            "power": 0.8
+            "power": 0.8,
         }
 
-        with patch("services.analytics_api.routes.ab_testing.get_current_user") as mock_auth:
+        with patch(
+            "services.analytics_api.routes.ab_testing.get_current_user"
+        ) as mock_auth:
             mock_auth.return_value = self.mock_user
 
             response = self.client.post(
                 "/v1/ab-testing",
                 json=experiment_data,
-                headers={"Authorization": "Bearer test_token"}
+                headers={"Authorization": "Bearer test_token"},
             )
 
         assert response.status_code == 200
@@ -516,12 +541,13 @@ class TestABTestingAPI:
 
     def test_list_experiments_endpoint(self):
         """Test listing experiments via API."""
-        with patch("services.analytics_api.routes.ab_testing.get_current_user") as mock_auth:
+        with patch(
+            "services.analytics_api.routes.ab_testing.get_current_user"
+        ) as mock_auth:
             mock_auth.return_value = self.mock_user
 
             response = self.client.get(
-                "/v1/ab-testing",
-                headers={"Authorization": "Bearer test_token"}
+                "/v1/ab-testing", headers={"Authorization": "Bearer test_token"}
             )
 
         assert response.status_code == 200
@@ -538,20 +564,32 @@ class TestABTestingAPI:
             "objective": "conversion_rate",
             "hypothesis": "Test assignment",
             "variants": [
-                {"name": "control", "traffic_allocation": 50.0, "feature_value": False, "is_control": True},
-                {"name": "treatment", "traffic_allocation": 50.0, "feature_value": True, "is_control": False}
+                {
+                    "name": "control",
+                    "traffic_allocation": 50.0,
+                    "feature_value": False,
+                    "is_control": True,
+                },
+                {
+                    "name": "treatment",
+                    "traffic_allocation": 50.0,
+                    "feature_value": True,
+                    "is_control": False,
+                },
             ],
-            "primary_metric": "conversion_rate"
+            "primary_metric": "conversion_rate",
         }
 
-        with patch("services.analytics_api.routes.ab_testing.get_current_user") as mock_auth:
+        with patch(
+            "services.analytics_api.routes.ab_testing.get_current_user"
+        ) as mock_auth:
             mock_auth.return_value = self.mock_user
 
             # Create experiment
             create_response = self.client.post(
                 "/v1/ab-testing",
                 json=experiment_data,
-                headers={"Authorization": "Bearer test_token"}
+                headers={"Authorization": "Bearer test_token"},
             )
             assert create_response.status_code == 200
             experiment_id = create_response.json()["data"]["experiment_id"]
@@ -560,18 +598,15 @@ class TestABTestingAPI:
             start_response = self.client.post(
                 f"/v1/ab-testing/{experiment_id}/start",
                 json={},
-                headers={"Authorization": "Bearer test_token"}
+                headers={"Authorization": "Bearer test_token"},
             )
             assert start_response.status_code == 200
 
             # Assign user
             assign_response = self.client.post(
                 f"/v1/ab-testing/{experiment_id}/assign",
-                json={
-                    "user_id": "test_user_123",
-                    "user_attributes": {"country": "US"}
-                },
-                headers={"Authorization": "Bearer test_token"}
+                json={"user_id": "test_user_123", "user_attributes": {"country": "US"}},
+                headers={"Authorization": "Bearer test_token"},
             )
 
             assert assign_response.status_code == 200
@@ -586,7 +621,9 @@ class TestABTestingAPI:
         # This would require setting up an experiment first
         # For brevity, testing the endpoint structure
 
-        with patch("services.analytics_api.routes.ab_testing.get_current_user") as mock_auth:
+        with patch(
+            "services.analytics_api.routes.ab_testing.get_current_user"
+        ) as mock_auth:
             mock_auth.return_value = self.mock_user
 
             # This will fail because experiment doesn't exist, but tests the endpoint
@@ -595,9 +632,9 @@ class TestABTestingAPI:
                 json={
                     "user_id": "test_user",
                     "event_type": "conversion",
-                    "event_value": 1.0
+                    "event_value": 1.0,
                 },
-                headers={"Authorization": "Bearer test_token"}
+                headers={"Authorization": "Bearer test_token"},
             )
 
             # Should return success=False for non-existent experiment
@@ -607,13 +644,15 @@ class TestABTestingAPI:
 
     def test_analyze_experiment_endpoint(self):
         """Test experiment analysis via API."""
-        with patch("services.analytics_api.routes.ab_testing.get_current_user") as mock_auth:
+        with patch(
+            "services.analytics_api.routes.ab_testing.get_current_user"
+        ) as mock_auth:
             mock_auth.return_value = self.mock_user
 
             response = self.client.post(
                 "/v1/ab-testing/nonexistent/analyze",
                 json={"test_type": "two_sample_ttest"},
-                headers={"Authorization": "Bearer test_token"}
+                headers={"Authorization": "Bearer test_token"},
             )
 
             # Should fail for non-existent experiment

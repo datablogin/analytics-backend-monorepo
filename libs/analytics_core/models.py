@@ -277,9 +277,13 @@ class ABTestExperiment(BaseModel):
     guardrail_metrics: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
 
     # Statistical settings
-    significance_level: Mapped[float] = mapped_column(Float, default=0.05, nullable=False)
+    significance_level: Mapped[float] = mapped_column(
+        Float, default=0.05, nullable=False
+    )
     power: Mapped[float] = mapped_column(Float, default=0.8, nullable=False)
-    minimum_detectable_effect: Mapped[float | None] = mapped_column(Float, nullable=True)
+    minimum_detectable_effect: Mapped[float | None] = mapped_column(
+        Float, nullable=True
+    )
 
     # Status and metadata
     status: Mapped[str] = mapped_column(

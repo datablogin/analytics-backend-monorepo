@@ -76,7 +76,9 @@ class ExperimentVariant(BaseModel):
     description: str | None = Field(default=None, description="Variant description")
     traffic_allocation: float = Field(description="Percentage of traffic (0-100)")
     feature_value: Any = Field(description="Feature flag value for this variant")
-    is_control: bool = Field(default=False, description="Whether this is the control variant")
+    is_control: bool = Field(
+        default=False, description="Whether this is the control variant"
+    )
 
 
 class ABTestExperiment(BaseModel):
@@ -88,7 +90,9 @@ class ABTestExperiment(BaseModel):
     description: str | None = Field(default=None, description="Experiment description")
 
     # Experiment setup
-    feature_flag_key: str = Field(description="Associated feature flag key", max_length=255)
+    feature_flag_key: str = Field(
+        description="Associated feature flag key", max_length=255
+    )
     objective: ExperimentObjective = Field(description="Primary objective")
     hypothesis: str = Field(description="Experiment hypothesis")
     variants: list[ExperimentVariant] = Field(description="Experiment variants")
@@ -102,7 +106,9 @@ class ABTestExperiment(BaseModel):
     )
 
     # Duration and stopping
-    start_date: datetime | None = Field(default=None, description="Experiment start date")
+    start_date: datetime | None = Field(
+        default=None, description="Experiment start date"
+    )
     end_date: datetime | None = Field(default=None, description="Experiment end date")
     stopping_rules: StoppingRule | None = Field(
         default=None, description="Automatic stopping configuration"
@@ -128,7 +134,9 @@ class ABTestExperiment(BaseModel):
 
     # Metadata
     status: ExperimentStatus = Field(default=ExperimentStatus.DRAFT)
-    created_by: str | None = Field(default=None, description="User who created experiment")
+    created_by: str | None = Field(
+        default=None, description="User who created experiment"
+    )
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
@@ -138,7 +146,9 @@ class ABTestExperiment(BaseModel):
     )
 
     # Results
-    results: dict[str, Any] = Field(default_factory=dict, description="Experiment results")
+    results: dict[str, Any] = Field(
+        default_factory=dict, description="Experiment results"
+    )
     winner: str | None = Field(default=None, description="Winning variant")
     confidence: float | None = Field(default=None, description="Confidence in results")
 
@@ -257,7 +267,9 @@ class AsyncABTestingEngine:
                 "power": experiment.power,
                 "minimum_detectable_effect": experiment.minimum_detectable_effect,
                 "status": experiment.status.value,
-                "created_by": int(experiment.created_by) if experiment.created_by else None,
+                "created_by": int(experiment.created_by)
+                if experiment.created_by
+                else None,
                 "mlflow_experiment_id": experiment.mlflow_experiment_id,
                 "results": experiment.results,
                 "winner": experiment.winner,
@@ -283,7 +295,9 @@ class AsyncABTestingEngine:
             self.logger.error("Failed to create experiment", error=str(error))
             raise
 
-    async def start_experiment(self, experiment_uuid: str, session: AsyncSession) -> bool:
+    async def start_experiment(
+        self, experiment_uuid: str, session: AsyncSession
+    ) -> bool:
         """Start an A/B test experiment."""
         try:
             repository = self._get_repository(session)
@@ -293,7 +307,9 @@ class AsyncABTestingEngine:
                 raise ValueError(f"Experiment {experiment_uuid} not found")
 
             if db_experiment.status != ExperimentStatus.DRAFT.value:
-                raise ValueError(f"Cannot start experiment in {db_experiment.status} status")
+                raise ValueError(
+                    f"Cannot start experiment in {db_experiment.status} status"
+                )
 
             # Update experiment status
             updates = {
@@ -329,7 +345,9 @@ class AsyncABTestingEngine:
                         "experiment_id": experiment_uuid,
                         "status": ExperimentStatus.RUNNING.value,
                     },
-                    created_by=str(db_experiment.created_by) if db_experiment.created_by else None,
+                    created_by=str(db_experiment.created_by)
+                    if db_experiment.created_by
+                    else None,
                 )
 
                 self.experiment_tracker.start_run(
@@ -342,7 +360,9 @@ class AsyncABTestingEngine:
 
         except Exception as error:
             self.logger.error(
-                "Failed to start experiment", experiment_uuid=experiment_uuid, error=str(error)
+                "Failed to start experiment",
+                experiment_uuid=experiment_uuid,
+                error=str(error),
             )
             raise
 
@@ -358,7 +378,10 @@ class AsyncABTestingEngine:
             repository = self._get_repository(session)
             db_experiment = await repository.get_experiment_by_uuid(experiment_uuid)
 
-            if not db_experiment or db_experiment.status != ExperimentStatus.RUNNING.value:
+            if (
+                not db_experiment
+                or db_experiment.status != ExperimentStatus.RUNNING.value
+            ):
                 return None
 
             user_attributes = user_attributes or {}
@@ -436,7 +459,9 @@ class AsyncABTestingEngine:
                 "user_id": user_id,
                 "variant": assignment.variant,
                 "event_type": event_type,
-                "event_value": float(event_value) if isinstance(event_value, int | float) else None,
+                "event_value": float(event_value)
+                if isinstance(event_value, int | float)
+                else None,
                 "properties": properties or {},
             }
 
@@ -466,7 +491,9 @@ class AsyncABTestingEngine:
             )
             raise
 
-    async def get_experiment(self, experiment_uuid: str, session: AsyncSession) -> ABTestExperiment | None:
+    async def get_experiment(
+        self, experiment_uuid: str, session: AsyncSession
+    ) -> ABTestExperiment | None:
         """Get experiment by UUID."""
         try:
             repository = self._get_repository(session)
@@ -507,7 +534,9 @@ class AsyncABTestingEngine:
                 return None
 
             # Find variant configuration
-            variant = next((v for v in experiment.variants if v.name == variant_name), None)
+            variant = next(
+                (v for v in experiment.variants if v.name == variant_name), None
+            )
             if variant:
                 return variant.feature_value
 
@@ -526,7 +555,7 @@ class AsyncABTestingEngine:
         self,
         experiment_uuid: str,
         session: AsyncSession,
-        test_type: str = "two_sample_ttest"
+        test_type: str = "two_sample_ttest",
     ) -> dict[str, Any]:
         """Analyze experiment results."""
         try:
@@ -567,12 +596,13 @@ class AsyncABTestingEngine:
             for variant_name, values in variant_data.items():
                 if values:
                     import numpy as np
+
                     results["variant_data"][variant_name] = {
                         "sample_size": len(values),
                         "mean": float(np.mean(values)),
                         "std": float(np.std(values, ddof=1)) if len(values) > 1 else 0,
                         "median": float(np.median(values)),
-                        "values": values
+                        "values": values,
                     }
                 else:
                     results["variant_data"][variant_name] = {
@@ -580,14 +610,14 @@ class AsyncABTestingEngine:
                         "mean": 0,
                         "std": 0,
                         "median": 0,
-                        "values": []
+                        "values": [],
                     }
 
             self.logger.info(
                 "Experiment analyzed",
                 experiment_uuid=experiment_uuid,
                 variants=len(variant_data),
-                total_events=len(events)
+                total_events=len(events),
             )
 
             return results
@@ -600,7 +630,9 @@ class AsyncABTestingEngine:
             )
             raise
 
-    async def check_stopping_criteria(self, experiment_uuid: str, session: AsyncSession) -> dict[str, Any]:
+    async def check_stopping_criteria(
+        self, experiment_uuid: str, session: AsyncSession
+    ) -> dict[str, Any]:
         """Check if experiment should be stopped based on configured rules."""
         try:
             repository = self._get_repository(session)
@@ -620,7 +652,9 @@ class AsyncABTestingEngine:
             )
             raise
 
-    async def stop_experiment(self, experiment_uuid: str, reason: str | None, session: AsyncSession) -> bool:
+    async def stop_experiment(
+        self, experiment_uuid: str, reason: str | None, session: AsyncSession
+    ) -> bool:
         """Stop a running experiment."""
         try:
             repository = self._get_repository(session)
@@ -648,14 +682,11 @@ class AsyncABTestingEngine:
 
             # Deactivate feature flag
             self.feature_flag_manager.update_flag(
-                db_experiment.feature_flag_key,
-                {"status": FeatureFlagStatus.INACTIVE}
+                db_experiment.feature_flag_key, {"status": FeatureFlagStatus.INACTIVE}
             )
 
             self.logger.info(
-                "Experiment stopped",
-                experiment_uuid=experiment_uuid,
-                reason=reason
+                "Experiment stopped", experiment_uuid=experiment_uuid, reason=reason
             )
 
             return True
@@ -672,7 +703,7 @@ class AsyncABTestingEngine:
         self,
         session: AsyncSession,
         status: str | None = None,
-        created_by: str | None = None
+        created_by: str | None = None,
     ) -> list[ABTestExperiment]:
         """List experiments with optional filtering."""
         try:
@@ -691,7 +722,7 @@ class AsyncABTestingEngine:
                 "Experiments listed",
                 count=len(experiments),
                 status=status,
-                created_by=created_by
+                created_by=created_by,
             )
 
             return experiments
@@ -705,7 +736,9 @@ class AsyncABTestingEngine:
         # Check traffic allocation sums to 100%
         total_allocation = sum(v.traffic_allocation for v in experiment.variants)
         if abs(total_allocation - 100.0) > 0.01:
-            raise ValueError(f"Traffic allocation must sum to 100%, got {total_allocation}")
+            raise ValueError(
+                f"Traffic allocation must sum to 100%, got {total_allocation}"
+            )
 
         # Ensure exactly one control variant
         control_variants = [v for v in experiment.variants if v.is_control]
@@ -758,7 +791,9 @@ class AsyncABTestingEngine:
                 name=f"AB Test: {experiment.name}",
                 description=experiment.description,
                 flag_type=FeatureFlagType.JSON,
-                default_value=next(v.feature_value for v in experiment.variants if v.is_control),
+                default_value=next(
+                    v.feature_value for v in experiment.variants if v.is_control
+                ),
                 created_by=experiment.created_by,
             )
             flag.ab_test = ab_test_config
@@ -803,7 +838,9 @@ class AsyncABTestingEngine:
 
         return None
 
-    def _db_to_pydantic_experiment(self, db_experiment: DBExperiment) -> ABTestExperiment:
+    def _db_to_pydantic_experiment(
+        self, db_experiment: DBExperiment
+    ) -> ABTestExperiment:
         """Convert database experiment to Pydantic model."""
         # Convert variants from dict to ExperimentVariant objects
         variants = []
@@ -839,7 +876,9 @@ class AsyncABTestingEngine:
             power=db_experiment.power,
             minimum_detectable_effect=db_experiment.minimum_detectable_effect,
             status=ExperimentStatus(db_experiment.status),
-            created_by=str(db_experiment.created_by) if db_experiment.created_by else None,
+            created_by=str(db_experiment.created_by)
+            if db_experiment.created_by
+            else None,
             created_at=db_experiment.created_at,
             updated_at=db_experiment.updated_at,
             mlflow_experiment_id=db_experiment.mlflow_experiment_id,
