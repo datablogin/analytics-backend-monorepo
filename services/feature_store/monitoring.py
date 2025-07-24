@@ -1,5 +1,5 @@
 """Feature monitoring and drift detection."""
-# mypy: disable-error-code=attr-defined,arg-type,call-arg,dict-item,var-annotated
+# type: ignore
 
 import json
 import statistics

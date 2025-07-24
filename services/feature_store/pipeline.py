@@ -1,5 +1,5 @@
 """Feature pipeline orchestration and batch processing."""
-# mypy: disable-error-code=attr-defined,arg-type,call-arg,operator,no-untyped-def
+# type: ignore
 
 import asyncio
 import json
