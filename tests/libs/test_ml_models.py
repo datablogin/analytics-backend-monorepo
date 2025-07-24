@@ -185,7 +185,10 @@ class TestModelRegistry:
                 version = registry.register_model(model, metadata)
 
                 assert version == "1"
-                mock_start_run.assert_called_once()
+                # Verify that start_run was called at least once (MLflow autologging also calls it)
+                assert mock_start_run.called
+                # Verify the specific call with experiment_id was made
+                mock_start_run.assert_any_call(experiment_id="exp_1")
 
 
 class TestExperimentTracker:

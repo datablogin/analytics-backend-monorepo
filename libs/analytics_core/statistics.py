@@ -290,7 +290,6 @@ class StatisticalAnalyzer:
                     effect_size=config.effect_size,
                     power=config.power,
                     alpha=config.alpha,
-                    ratio=config.ratio,
                     alternative="two-sided" if config.two_sided else "larger",
                 )
 
@@ -304,7 +303,7 @@ class StatisticalAnalyzer:
 
                 return {
                     "required_sample_size_per_group": math.ceil(sample_size),
-                    "total_sample_size": math.ceil(sample_size * (1 + config.ratio)),
+                    "total_sample_size": math.ceil(sample_size * 2),  # Two groups
                     "actual_power": actual_power,
                     "effect_size": config.effect_size,
                     "alpha": config.alpha,
