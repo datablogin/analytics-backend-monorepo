@@ -268,8 +268,12 @@ class DataCube:
         """Get all hierarchical dimensions."""
         return [dim for dim in self.schema.dimensions if dim.is_hierarchical()]
 
-    def build_sql_query(self, query: CubeQuery) -> str:
-        """Build SQL query from cube query definition."""
+    def build_sql_query(self, query: CubeQuery) -> tuple[str, dict[str, Any]]:
+        """Build SQL query from cube query definition.
+        
+        Returns:
+            tuple: (SQL query with placeholders, parameters dict)
+        """
         # SELECT clause
         select_parts = []
 
@@ -293,18 +297,29 @@ class DataCube:
         # FROM clause
         from_clause = f"FROM {self.schema.get_full_table_name()}"
 
-        # WHERE clause
+        # WHERE clause with parameterized queries
         where_conditions = []
+        parameters: dict[str, Any] = {}
+        param_counter = 0
+
         for dim_name, value in query.filters.items():
             dimension = self.schema.get_dimension(dim_name)
             if dimension:
                 if isinstance(value, list):
-                    # IN clause
-                    value_list = ", ".join([f"'{v}'" for v in value])
-                    where_conditions.append(f"{dimension.column} IN ({value_list})")
+                    # IN clause with parameters
+                    param_names = []
+                    for v in value:
+                        param_name = f"param_{param_counter}"
+                        parameters[param_name] = v
+                        param_names.append(f":{param_name}")
+                        param_counter += 1
+                    where_conditions.append(f"{dimension.column} IN ({', '.join(param_names)})")
                 else:
-                    # Equality
-                    where_conditions.append(f"{dimension.column} = '{value}'")
+                    # Equality with parameter
+                    param_name = f"param_{param_counter}"
+                    parameters[param_name] = value
+                    where_conditions.append(f"{dimension.column} = :{param_name}")
+                    param_counter += 1
 
         where_clause = ""
         if where_conditions:
@@ -322,13 +337,16 @@ class DataCube:
             if group_columns:
                 group_by_clause = "GROUP BY " + ", ".join(group_columns)
 
-        # HAVING clause
+        # HAVING clause (Note: HAVING conditions would need separate parameterization
+        # for complex conditions, but keeping simple for now)
         having_clause = ""
         if query.having:
             having_conditions = []
             for measure_name, condition in query.having.items():
                 measure = self.schema.get_measure(measure_name)
                 if measure:
+                    # For basic conditions like "> 100", keeping as-is
+                    # TODO: Implement full parameterization for complex HAVING conditions
                     having_conditions.append(
                         f"{measure.get_sql_expression()} {condition}"
                     )
@@ -357,4 +375,5 @@ class DataCube:
             limit_clause,
         ]
 
-        return "\n".join(part for part in sql_parts if part)
+        sql_query = "\n".join(part for part in sql_parts if part)
+        return sql_query, parameters

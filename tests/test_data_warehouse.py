@@ -266,7 +266,7 @@ class TestOLAPCube:
             limit=100,
         )
 
-        sql = cube.build_sql_query(query)
+        sql, params = cube.build_sql_query(query)
 
         assert "SELECT" in sql
         assert "region" in sql
@@ -614,7 +614,7 @@ class TestIntegration:
         result1 = await engine.execute_query(query)
 
         # Cache the result (in real implementation, this would be automatic)
-        sql_query = cube.build_sql_query(query)
+        sql_query, _ = cube.build_sql_query(query)
         cache.put(
             sql_query,
             result1.combined_result if hasattr(result1, "combined_result") else None,

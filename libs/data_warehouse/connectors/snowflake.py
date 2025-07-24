@@ -8,6 +8,7 @@ snowflake-connector-python library with async support.
 import time
 from typing import Any
 
+import structlog
 from pydantic import BaseModel
 
 from .base import (
@@ -20,6 +21,8 @@ from .base import (
     SchemaInfo,
     TableInfo,
     WarehouseType,
+    sanitize_error_message,
+    validate_sql_identifier,
 )
 from .base import (
     ConnectionError as ConnectorConnectionError,
@@ -53,6 +56,12 @@ class SnowflakeConnector(DataWarehouseConnector):
         self.config = SnowflakeConfig(**connection_params)
         self._connection = None
         self._cursor = None
+        self.logger = structlog.get_logger(__name__).bind(
+            warehouse_type="snowflake",
+            account=self.config.account,
+            user=self.config.user,
+            connector_id=id(self)
+        )
 
     def _get_warehouse_type(self) -> WarehouseType:
         """Return Snowflake warehouse type."""
@@ -60,6 +69,7 @@ class SnowflakeConnector(DataWarehouseConnector):
 
     async def connect(self) -> None:
         """Establish connection to Snowflake."""
+        self.logger.info("attempting_connection", status="connecting")
         try:
             import snowflake.connector
             from snowflake.connector import DictCursor
@@ -102,15 +112,19 @@ class SnowflakeConnector(DataWarehouseConnector):
                 self._cursor = self._connection.cursor(DictCursor)
 
             self._status = ConnectionStatus.CONNECTED
+            self.logger.info("connection_successful", status="connected")
 
         except Exception as e:
             self._status = ConnectionStatus.ERROR
+            sanitized_error = sanitize_error_message(str(e))
+            self.logger.error("connection_failed", status="error", error=sanitized_error)
             raise ConnectorConnectionError(
-                f"Failed to connect to Snowflake: {str(e)}", WarehouseType.SNOWFLAKE
+                f"Failed to connect to Snowflake: {sanitized_error}", WarehouseType.SNOWFLAKE
             )
 
     async def disconnect(self) -> None:
         """Close Snowflake connection."""
+        self.logger.info("disconnecting", status="disconnecting")
         try:
             if self._cursor:
                 self._cursor.close()
@@ -119,8 +133,10 @@ class SnowflakeConnector(DataWarehouseConnector):
                 self._connection.close()
                 self._connection = None
             self._status = ConnectionStatus.DISCONNECTED
-        except Exception:
+            self.logger.info("disconnected_successfully", status="disconnected")
+        except Exception as e:
             # Log error but don't raise - disconnection should be best-effort
+            self.logger.error("disconnect_failed", status="error", error=str(e))
             self._status = ConnectionStatus.ERROR
 
     async def test_connection(self) -> bool:
@@ -145,6 +161,8 @@ class SnowflakeConnector(DataWarehouseConnector):
         if not self._cursor:
             raise QueryError("Not connected to Snowflake", query)
 
+        query_id = f"query_{int(time.time() * 1000)}"
+        self.logger.info("executing_query", query_id=query_id, has_params=params is not None)
         start_time = time.time()
 
         try:
@@ -178,14 +196,20 @@ class SnowflakeConnector(DataWarehouseConnector):
             execution_time = int((time.time() - start_time) * 1000)
 
             # Get query metadata
-            query_id = self._cursor.sfqid if hasattr(self._cursor, "sfqid") else None
+            sf_query_id = self._cursor.sfqid if hasattr(self._cursor, "sfqid") else None
 
             metadata = QueryMetadata(
-                query_id=query_id,
+                query_id=sf_query_id,
                 execution_time_ms=execution_time,
                 rows_scanned=len(data) if data else 0,
                 cache_hit=False,
             )
+
+            self.logger.info("query_completed",
+                           query_id=query_id,
+                           snowflake_query_id=sf_query_id,
+                           execution_time_ms=execution_time,
+                           row_count=len(data) if data else 0)
 
             return QueryResult(
                 columns=columns,
@@ -195,6 +219,11 @@ class SnowflakeConnector(DataWarehouseConnector):
             )
 
         except Exception as e:
+            execution_time = int((time.time() - start_time) * 1000)
+            self.logger.error("query_failed",
+                            query_id=query_id,
+                            execution_time_ms=execution_time,
+                            error=str(e))
             raise QueryError(f"Query execution failed: {str(e)}", query)
 
     async def execute_async_query(
@@ -293,14 +322,14 @@ class SnowflakeConnector(DataWarehouseConnector):
 
     async def _get_schema_tables(self, schema_name: str) -> list[TableInfo]:
         """Get tables for a specific schema."""
-        tables_query = f"""
+        tables_query = """
             SELECT TABLE_NAME, COMMENT, ROW_COUNT, CREATED, LAST_ALTERED
             FROM INFORMATION_SCHEMA.TABLES
-            WHERE TABLE_SCHEMA = '{schema_name}'
+            WHERE TABLE_SCHEMA = :schema_name
             ORDER BY TABLE_NAME
         """
 
-        result = await self.execute_query(tables_query)
+        result = await self.execute_query(tables_query, {"schema_name": schema_name})
         tables = []
 
         for row in result.data:
@@ -331,14 +360,17 @@ class SnowflakeConnector(DataWarehouseConnector):
         self, table_name: str, schema_name: str
     ) -> list[ColumnInfo]:
         """Get columns for a specific table."""
-        columns_query = f"""
+        columns_query = """
             SELECT COLUMN_NAME, DATA_TYPE, IS_NULLABLE, COLUMN_DEFAULT, COMMENT
             FROM INFORMATION_SCHEMA.COLUMNS
-            WHERE TABLE_SCHEMA = '{schema_name}' AND TABLE_NAME = '{table_name}'
+            WHERE TABLE_SCHEMA = :schema_name AND TABLE_NAME = :table_name
             ORDER BY ORDINAL_POSITION
         """
 
-        result = await self.execute_query(columns_query)
+        result = await self.execute_query(columns_query, {
+            "schema_name": schema_name,
+            "table_name": table_name
+        })
         columns = []
 
         for row in result.data:
@@ -374,8 +406,16 @@ class SnowflakeConnector(DataWarehouseConnector):
         self, table_name: str, schema_name: str | None = None, limit: int = 100
     ) -> QueryResult:
         """Get a sample of data from a table."""
+        # Validate inputs to prevent SQL injection
+        validate_sql_identifier(table_name, "table name")
         schema = schema_name or self.config.schema
-        full_table_name = f"{schema}.{table_name}" if schema else table_name
+        if schema:
+            validate_sql_identifier(schema, "schema name")
 
+        # Validate limit to prevent abuse
+        if not isinstance(limit, int) or limit < 1 or limit > 10000:
+            raise ValueError("Limit must be an integer between 1 and 10000")
+
+        full_table_name = f"{schema}.{table_name}" if schema else table_name
         sample_query = f"SELECT * FROM {full_table_name} LIMIT {limit}"
         return await self.execute_query(sample_query)

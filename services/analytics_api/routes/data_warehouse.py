@@ -14,13 +14,13 @@ from libs.analytics_core.auth import get_current_user
 from libs.analytics_core.models import User
 from libs.analytics_core.responses import StandardResponse
 from libs.data_warehouse import (
-    ConnectorFactory,
-    FederatedQueryEngine,
-    OLAPEngine,
-    QueryCache,
     WarehouseType,
 )
 from libs.data_warehouse.connectors.base import ConnectionStatus, QueryResult
+from libs.data_warehouse.dependencies import (
+    DataWarehouseManager,
+    get_data_warehouse_manager,
+)
 from libs.data_warehouse.olap.cube import CubeQuery, CubeResult, CubeSchema
 from libs.data_warehouse.olap.operations import (
     DiceOperation,
@@ -99,41 +99,30 @@ class FederatedQueryRequest(BaseModel):
     aggregation: dict[str, str] | None = None
 
 
-# Global instances - in production, these would be dependency-injected
-_connections: dict[str, Any] = {}
-_olap_engines: dict[str, OLAPEngine] = {}
-_query_cache = QueryCache()
-_federation_engine = FederatedQueryEngine()
+# Dependencies are now injected through DataWarehouseManager
 
 
 @router.post("/connections", response_model=StandardResponse[ConnectionResponse])
 async def create_connection(
-    request: ConnectionRequest, current_user: User = Depends(get_current_user)
+    request: ConnectionRequest,
+    current_user: User = Depends(get_current_user),
+    manager: DataWarehouseManager = Depends(get_data_warehouse_manager)
 ) -> StandardResponse[ConnectionResponse]:
     """Create a new data warehouse connection."""
     try:
-        # Create connector
-        connector = ConnectorFactory.create_connector(
-            request.warehouse_type, request.connection_params
+        # Create and test connection through manager
+        connector = await manager.create_connection(
+            request.name,
+            request.warehouse_type.value,
+            request.connection_params
         )
 
-        # Test connection
-        await connector.connect()
+        # Test the connection
         await connector.test_connection()
 
-        # Store connection
-        _connections[request.name] = {
-            "connector": connector,
-            "warehouse_type": request.warehouse_type,
-            "description": request.description,
-            "created_by": current_user.username,
-        }
-
-        # Create OLAP engine for this connection
-        _olap_engines[request.name] = OLAPEngine(connector)
-
         # Register with federation engine
-        _federation_engine.register_source(request.name, connector)
+        federation_engine = manager.get_federation_engine()
+        federation_engine.register_source(request.name, connector)
 
         response_data = ConnectionResponse(
             name=request.name,

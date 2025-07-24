@@ -15,6 +15,12 @@ from pydantic import BaseModel
 
 from ..connectors.base import QueryResult
 
+# Cache size estimation constants
+COLUMN_METADATA_OVERHEAD_BYTES = 50
+DATA_CELL_OVERHEAD_BYTES = 20
+BASE_RESULT_OVERHEAD_BYTES = 200
+JSON_ENCODING_OVERHEAD_MULTIPLIER = 1.2
+
 
 class CacheStrategy(str, Enum):
     """Caching strategies for different types of queries."""
@@ -105,15 +111,32 @@ class QueryCache:
         return hashlib.sha256(content.encode()).hexdigest()
 
     def _estimate_size_bytes(self, result: QueryResult) -> int:
-        """Estimate memory size of query result."""
-        # Basic estimation - could be improved with more sophisticated methods
-        base_size = len(result.model_dump_json().encode())
+        """Estimate memory size of query result with improved accuracy."""
+        # For large results, avoid JSON serialization which is expensive
+        if result.total_rows > 1000:
+            # Use fast approximation for large results
+            column_overhead = len(result.columns) * COLUMN_METADATA_OVERHEAD_BYTES
+            data_overhead = len(result.data) * len(result.columns) * DATA_CELL_OVERHEAD_BYTES
 
-        # Add overhead for data structures
-        overhead = len(result.columns) * 50  # Column metadata
-        overhead += len(result.data) * len(result.columns) * 20  # Data overhead
+            # Estimate average cell size based on sample
+            if result.data:
+                sample_rows = min(10, len(result.data))
+                sample_size = sum(
+                    len(str(cell)) for row in result.data[:sample_rows]
+                    for cell in row if cell is not None
+                )
+                avg_cell_size = sample_size / (sample_rows * len(result.columns))
+                estimated_data_size = int(avg_cell_size * len(result.data) * len(result.columns))
+            else:
+                estimated_data_size = 0
 
-        return base_size + overhead
+            return int((BASE_RESULT_OVERHEAD_BYTES + column_overhead + data_overhead + estimated_data_size) * JSON_ENCODING_OVERHEAD_MULTIPLIER)
+        else:
+            # Use accurate measurement for smaller results
+            base_size = len(result.model_dump_json().encode())
+            overhead = len(result.columns) * COLUMN_METADATA_OVERHEAD_BYTES
+            overhead += len(result.data) * len(result.columns) * DATA_CELL_OVERHEAD_BYTES
+            return base_size + overhead
 
     def _should_cache(self, result: QueryResult) -> bool:
         """Determine if a query result should be cached."""

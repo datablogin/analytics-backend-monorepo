@@ -21,6 +21,7 @@ from .base import (
     SchemaInfo,
     TableInfo,
     WarehouseType,
+    validate_sql_identifier,
 )
 from .base import (
     ConnectionError as ConnectorConnectionError,
@@ -399,8 +400,15 @@ class RedshiftConnector(DataWarehouseConnector):
         self, table_name: str, schema_name: str | None = None, limit: int = 100
     ) -> QueryResult:
         """Get a sample of data from a table."""
+        # Validate inputs to prevent SQL injection
+        validate_sql_identifier(table_name, "table name")
         schema = schema_name or self.config.schema or "public"
-        full_table_name = f'"{schema}"."{table_name}"'
+        validate_sql_identifier(schema, "schema name")
 
+        # Validate limit to prevent abuse
+        if not isinstance(limit, int) or limit < 1 or limit > 10000:
+            raise ValueError("Limit must be an integer between 1 and 10000")
+
+        full_table_name = f'"{schema}"."{table_name}"'
         sample_query = f"SELECT * FROM {full_table_name} LIMIT {limit}"
         return await self.execute_query(sample_query)

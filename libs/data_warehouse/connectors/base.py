@@ -5,12 +5,74 @@ This module defines the abstract base class for all data warehouse connectors
 and provides common data structures used across the library.
 """
 
+import re
 from abc import ABC, abstractmethod
 from datetime import datetime
 from enum import Enum
 from typing import Any
 
 from pydantic import BaseModel
+
+
+def sanitize_error_message(error_message: str) -> str:
+    """
+    Sanitize error messages to remove sensitive information.
+    
+    Args:
+        error_message: The raw error message
+        
+    Returns:
+        str: Sanitized error message
+    """
+    # List of sensitive patterns to remove/mask
+    sensitive_patterns = [
+        (r'password[=:]\s*[\'"][^\'";]+[\'"]', 'password=***'),
+        (r'password[=:]\s*\w+', 'password=***'),
+        (r'user[=:]\s*[\'"][^\'";]+[\'"]', 'user=***'),
+        (r'account[=:]\s*[\'"][^\'";]+[\'"]', 'account=***'),
+        (r'token[=:]\s*[\'"][^\'";]+[\'"]', 'token=***'),
+        (r'key[=:]\s*[\'"][^\'";]+[\'"]', 'key=***'),
+        (r'host[=:]\s*[\'"][^\'";]+[\'"]', 'host=***'),
+        (r'server[=:]\s*[\'"][^\'";]+[\'"]', 'server=***'),
+    ]
+
+    sanitized_message = error_message
+    for pattern, replacement in sensitive_patterns:
+        sanitized_message = re.sub(pattern, replacement, sanitized_message, flags=re.IGNORECASE)
+
+    return sanitized_message
+
+
+def validate_sql_identifier(identifier: str, identifier_type: str = "identifier") -> str:
+    """
+    Validate and sanitize SQL identifiers to prevent injection attacks.
+    
+    Args:
+        identifier: The identifier to validate
+        identifier_type: Type of identifier for error messages
+    
+    Returns:
+        The validated identifier
+        
+    Raises:
+        ValueError: If the identifier is invalid or potentially malicious
+    """
+    if not identifier:
+        raise ValueError(f"Empty {identifier_type} not allowed")
+
+    # Check for basic SQL injection patterns
+    if any(char in identifier.lower() for char in [';', '--', '/*', '*/', 'drop', 'delete', 'update', 'insert']):
+        raise ValueError(f"Potentially malicious {identifier_type}: {identifier}")
+
+    # Allow only alphanumeric characters, underscores, and dots for schema.table format
+    if not re.match(r'^[a-zA-Z0-9_\.]+$', identifier):
+        raise ValueError(f"Invalid {identifier_type}: {identifier}. Only alphanumeric characters, underscores, and dots allowed")
+
+    # Limit length to prevent abuse
+    if len(identifier) > 128:
+        raise ValueError(f"{identifier_type} too long: {identifier}")
+
+    return identifier
 
 
 class WarehouseType(str, Enum):
@@ -104,6 +166,7 @@ class DataWarehouseConnector(ABC):
         self.connection_params = connection_params
         self._status = ConnectionStatus.DISCONNECTED
         self._connection = None
+        self.logger = None  # Will be initialized in concrete classes
 
     @property
     def status(self) -> ConnectionStatus:
