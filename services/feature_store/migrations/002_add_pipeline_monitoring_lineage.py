@@ -120,9 +120,7 @@ def upgrade() -> None:
         sa.Column("current_period_start", sa.DateTime(timezone=True), nullable=False),
         sa.Column("current_period_end", sa.DateTime(timezone=True), nullable=False),
         sa.Column("statistics", sa.Text(), nullable=True),
-        sa.Column(
-            "alert_triggered", sa.Boolean(), nullable=False, default=False
-        ),
+        sa.Column("alert_triggered", sa.Boolean(), nullable=False, default=False),
         sa.PrimaryKeyConstraint("id"),
     )
 
@@ -157,9 +155,7 @@ def upgrade() -> None:
         sa.Column("alert_level", sa.String(length=50), nullable=False),
         sa.Column("message", sa.Text(), nullable=False),
         sa.Column("alert_data", sa.Text(), nullable=True),
-        sa.Column(
-            "acknowledged", sa.Boolean(), nullable=False, default=False
-        ),
+        sa.Column("acknowledged", sa.Boolean(), nullable=False, default=False),
         sa.Column("acknowledged_by", sa.String(length=255), nullable=True),
         sa.Column("acknowledged_at", sa.DateTime(timezone=True), nullable=True),
         sa.PrimaryKeyConstraint("id"),

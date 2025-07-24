@@ -617,6 +617,7 @@ class FeatureMonitor:
 
             # Correct PSI formula: (current - baseline) * ln(current / baseline)
             import math
+
             psi += (current_pct - baseline_pct) * math.log(current_pct / baseline_pct)
 
         return min(psi, 1.0)

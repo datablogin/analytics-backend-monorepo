@@ -357,6 +357,7 @@ class FeaturePipelineOrchestrator:
             if not file_path:
                 raise ValueError("CSV source requires file_path")
             import pandas as pd
+
             return pd.read_csv(file_path)
 
         elif source_type == "database":
@@ -384,7 +385,8 @@ class FeaturePipelineOrchestrator:
             except Exception as e:
                 logger.error(
                     "Failed to load data from database source",
-                    connection_string=connection_string[:50] + "...",  # Truncate for security
+                    connection_string=connection_string[:50]
+                    + "...",  # Truncate for security
                     query=query[:100] + "..." if len(query) > 100 else query,
                     error=str(e),
                 )
@@ -425,7 +427,9 @@ class FeaturePipelineOrchestrator:
                             # If it's a dict, look for common data keys
                             data_key = None
                             for key in ["data", "results", "items", "records"]:
-                                if key in json_data and isinstance(json_data[key], list):
+                                if key in json_data and isinstance(
+                                    json_data[key], list
+                                ):
                                     data_key = key
                                     break
 
@@ -486,11 +490,13 @@ class FeaturePipelineOrchestrator:
                 batch_size = 1000
 
                 for i in range(0, len(data), batch_size):
-                    batch_data = data.iloc[i:i + batch_size]
-                    batch_entity_ids = entity_ids.iloc[i:i + batch_size]
+                    batch_data = data.iloc[i : i + batch_size]
+                    batch_entity_ids = entity_ids.iloc[i : i + batch_size]
 
                     # Apply transformation to each row in the batch
-                    for batch_idx, (_global_idx, row) in enumerate(batch_data.iterrows()):
+                    for batch_idx, (_global_idx, row) in enumerate(
+                        batch_data.iterrows()
+                    ):
                         entity_id = str(batch_entity_ids.iloc[batch_idx])
 
                         try:
@@ -545,16 +551,16 @@ class FeaturePipelineOrchestrator:
 
         # Safe functions for mathematical expressions
         safe_functions = {
-            'abs': abs,
-            'max': max,
-            'min': min,
-            'round': round,
-            'sqrt': math.sqrt,
-            'log': math.log,
-            'exp': math.exp,
-            'sin': math.sin,
-            'cos': math.cos,
-            'tan': math.tan,
+            "abs": abs,
+            "max": max,
+            "min": min,
+            "round": round,
+            "sqrt": math.sqrt,
+            "log": math.log,
+            "exp": math.exp,
+            "sin": math.sin,
+            "cos": math.cos,
+            "tan": math.tan,
         }
 
         def _safe_eval(node, context: dict[str, Any]) -> Any:
@@ -606,11 +612,13 @@ class FeaturePipelineOrchestrator:
 
             for col_name in row.index:
                 var_name = f"col_{col_name.replace(' ', '_').replace('-', '_')}"
-                processed_expression = processed_expression.replace(f"${col_name}", var_name)
+                processed_expression = processed_expression.replace(
+                    f"${col_name}", var_name
+                )
                 context[var_name] = row[col_name]
 
             # Parse and evaluate the expression safely
-            parsed = ast.parse(processed_expression, mode='eval')
+            parsed = ast.parse(processed_expression, mode="eval")
             result = _safe_eval(parsed, context)
 
             return result
