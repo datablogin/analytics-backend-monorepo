@@ -236,3 +236,125 @@ class RunTag(BaseModel):
 
     # Relationships
     run: Mapped["ExperimentRun"] = relationship(back_populates="tags")
+
+
+class ABTestExperiment(BaseModel):
+    """A/B Test Experiment model for database persistence."""
+
+    __tablename__ = "ab_test_experiments"
+
+    # Basic information
+    experiment_uuid: Mapped[str] = mapped_column(
+        String(36), unique=True, index=True, nullable=False
+    )
+    name: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    # Experiment setup
+    feature_flag_key: Mapped[str] = mapped_column(
+        String(255), nullable=False, index=True
+    )
+    objective: Mapped[str] = mapped_column(String(50), nullable=False)
+    hypothesis: Mapped[str] = mapped_column(Text, nullable=False)
+    variants: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
+
+    # Targeting and segmentation
+    target_audience: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+    exclusion_rules: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+
+    # Duration and stopping
+    start_date: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    end_date: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    stopping_rules: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+
+    # Metrics and analysis
+    primary_metric: Mapped[str] = mapped_column(String(100), nullable=False)
+    secondary_metrics: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
+    guardrail_metrics: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
+
+    # Statistical settings
+    significance_level: Mapped[float] = mapped_column(
+        Float, default=0.05, nullable=False
+    )
+    power: Mapped[float] = mapped_column(Float, default=0.8, nullable=False)
+    minimum_detectable_effect: Mapped[float | None] = mapped_column(
+        Float, nullable=True
+    )
+
+    # Status and metadata
+    status: Mapped[str] = mapped_column(
+        String(50), default="draft", nullable=False, index=True
+    )
+    created_by: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("users.id"), nullable=True, index=True
+    )
+
+    # MLflow integration
+    mlflow_experiment_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
+
+    # Results
+    results: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+    winner: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
+
+    # Relationships
+    creator: Mapped["User | None"] = relationship()
+    assignments: Mapped[list["ABTestAssignment"]] = relationship(
+        back_populates="experiment", cascade="all, delete-orphan"
+    )
+    events: Mapped[list["ABTestEvent"]] = relationship(
+        back_populates="experiment", cascade="all, delete-orphan"
+    )
+
+
+class ABTestAssignment(BaseModel):
+    """A/B Test user assignment model."""
+
+    __tablename__ = "ab_test_assignments"
+    __table_args__ = (
+        Index("ix_ab_assignments_exp_user", "experiment_id", "user_id"),
+        Index("ix_ab_assignments_user_exp", "user_id", "experiment_id"),
+    )
+
+    experiment_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("ab_test_experiments.id"), nullable=False, index=True
+    )
+    user_id: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
+    variant: Mapped[str] = mapped_column(String(100), nullable=False, index=True)
+    assigned_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    context: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+
+    # Relationships
+    experiment: Mapped["ABTestExperiment"] = relationship(back_populates="assignments")
+
+
+class ABTestEvent(BaseModel):
+    """A/B Test event tracking model."""
+
+    __tablename__ = "ab_test_events"
+    __table_args__ = (
+        Index("ix_ab_events_exp_user", "experiment_id", "user_id"),
+        Index("ix_ab_events_type_timestamp", "event_type", "timestamp"),
+        Index("ix_ab_events_variant_type", "variant", "event_type"),
+    )
+
+    experiment_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("ab_test_experiments.id"), nullable=False, index=True
+    )
+    user_id: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
+    variant: Mapped[str] = mapped_column(String(100), nullable=False, index=True)
+    event_type: Mapped[str] = mapped_column(String(100), nullable=False, index=True)
+    event_value: Mapped[float | None] = mapped_column(Float, nullable=True)
+    properties: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+    timestamp: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False, index=True
+    )
+
+    # Relationships
+    experiment: Mapped["ABTestExperiment"] = relationship(back_populates="events")
