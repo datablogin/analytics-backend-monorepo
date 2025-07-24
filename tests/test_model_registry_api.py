@@ -1,5 +1,6 @@
 """Tests for ML Model Registry and Serving API endpoints."""
 
+import json
 from io import BytesIO
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -50,8 +51,33 @@ async def test_user(async_db_session: AsyncSession):
 
 @pytest.fixture
 def client():
-    """Create test client."""
-    return TestClient(app)
+    """Create test client with overridden dependencies."""
+    from services.analytics_api.routes.models import get_current_user, get_model_registry
+    
+    # Create mock user
+    mock_user = MagicMock()
+    mock_user.username = "testuser"
+    mock_user.id = 1
+    mock_user.email = "test@example.com"
+    
+    # Create mock registry
+    mock_registry = MagicMock()
+    
+    # Override dependencies
+    app.dependency_overrides[get_current_user] = lambda: mock_user
+    app.dependency_overrides[get_model_registry] = lambda: mock_registry
+    
+    # Mock the secure model loader to avoid validation issues
+    with patch("services.analytics_api.routes.models.load_model_secure") as mock_loader:
+        mock_model = MagicMock()
+        mock_model.predict = MagicMock(return_value=[0, 1, 0])
+        mock_loader.return_value = mock_model
+        
+        client = TestClient(app)
+        yield client
+    
+    # Clean up overrides
+    app.dependency_overrides.clear()
 
 
 @pytest.fixture
@@ -63,35 +89,25 @@ def auth_headers():
 class TestModelRegistryAPI:
     """Test cases for Model Registry API endpoints."""
 
-    @patch("services.analytics_api.routes.models.get_model_registry")
-    @patch("services.analytics_api.routes.models.get_current_user")
-    def test_register_model_sklearn(self, mock_auth, mock_registry, client):
+    def test_register_model_sklearn(self, client):
         """Test registering a sklearn model."""
-        # Mock authentication
-        mock_user = MagicMock()
-        mock_user.username = "testuser"
-        mock_auth.return_value = mock_user
+        # Get the mock registry from the client fixture and configure it
+        from services.analytics_api.routes.models import get_model_registry
+        mock_registry = app.dependency_overrides[get_model_registry]()
+        mock_registry.register_model.return_value = "1"
 
-        # Mock registry
-        mock_registry_instance = MagicMock()
-        mock_registry_instance.register_model.return_value = "1"
-        mock_registry.return_value = mock_registry_instance
+        # Create simple test file content (we'll mock the secure loader)
+        pickle_content = b"fake_model_content"
 
-        # Create mock pickle file content
-        import pickle
-
-        mock_model = {"type": "mock_sklearn_model"}
-        pickle_content = pickle.dumps(mock_model)
-
-        # Prepare request data
+        # Prepare request data - serialize dict values as JSON strings for multipart form
         model_data = {
             "name": "test_model",
             "description": "Test sklearn model",
             "model_type": "classification",
             "algorithm": "random_forest",
             "framework": "sklearn",
-            "metrics": {"accuracy": 0.95, "f1_score": 0.92},
-            "tags": {"project": "test", "version": "1.0"},
+            "metrics": json.dumps({"accuracy": 0.95, "f1_score": 0.92}),
+            "tags": json.dumps({"project": "test", "version": "1.0"}),
         }
 
         files = {
@@ -115,16 +131,12 @@ class TestModelRegistryAPI:
         assert response_data["data"]["model_name"] == "test_model"
         assert response_data["data"]["version"] == "1"
 
-    @patch("services.analytics_api.routes.models.get_model_registry")
-    @patch("services.analytics_api.routes.models.get_current_user")
-    def test_list_models(self, mock_auth, mock_registry, client):
+    def test_list_models(self, client):
         """Test listing models."""
-        # Mock authentication
-        mock_user = MagicMock()
-        mock_auth.return_value = mock_user
-
-        # Mock registry response
-        mock_registry_instance = MagicMock()
+        # Get the mock registry from the client fixture and configure it
+        from services.analytics_api.routes.models import get_model_registry
+        mock_registry = app.dependency_overrides[get_model_registry]()
+        
         mock_models = [
             {
                 "name": "model1",
@@ -143,8 +155,7 @@ class TestModelRegistryAPI:
                 "tags": {},
             },
         ]
-        mock_registry_instance.list_models.return_value = mock_models
-        mock_registry.return_value = mock_registry_instance
+        mock_registry.list_models.return_value = mock_models
 
         response = client.get(
             "/v1/models",

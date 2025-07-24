@@ -1,5 +1,6 @@
 """ML Model Registry and Serving API endpoints."""
 
+import json
 import tempfile
 from datetime import datetime, timezone
 from typing import Annotated
@@ -9,6 +10,7 @@ from fastapi import (
     APIRouter,
     Depends,
     File,
+    Form,
     HTTPException,
     Query,
     Request,
@@ -136,7 +138,14 @@ class StageTransitionRequest(BaseModel):
 @router.post("", response_model=StandardResponse[dict])
 async def register_model(
     request: Request,
-    registration_request: ModelRegistrationRequest,
+    name: str = Form(..., description="Model name"),
+    model_type: str = Form(..., description="Type of model (classification, regression, etc.)"),
+    algorithm: str = Form(..., description="ML algorithm used"),
+    framework: str = Form(..., description="ML framework (sklearn, lightgbm, etc.)"),
+    description: str | None = Form(None, description="Model description"),
+    metrics: str = Form("{}", description="Model performance metrics as JSON string"),
+    tags: str = Form("{}", description="Custom tags for model as JSON string"),
+    training_dataset_version: str | None = Form(None, description="Version of training dataset"),
     model_file: UploadFile = File(..., description="Model file to upload"),
     current_user: User = Depends(get_current_user),
     registry: ModelRegistry = Depends(get_model_registry),
@@ -145,6 +154,17 @@ async def register_model(
     tmp_file_path = None
 
     try:
+        # Parse JSON strings for metrics and tags
+        try:
+            parsed_metrics = json.loads(metrics) if metrics else {}
+            parsed_tags = json.loads(tags) if tags else {}
+        except json.JSONDecodeError as e:
+            logger.error("Invalid JSON in form data", error=str(e))
+            raise HTTPException(
+                status_code=400, 
+                detail=f"Invalid JSON format in metrics or tags: {str(e)}"
+            )
+
         # Validate file size
         if model_file.size and model_file.size > MAX_FILE_SIZE:
             raise HTTPException(
@@ -157,23 +177,23 @@ async def register_model(
 
         logger.info(
             "Starting model registration",
-            model_name=registration_request.name,
-            framework=registration_request.framework,
+            model_name=name,
+            framework=framework,
             filename=safe_filename,
             user=current_user.username,
         )
 
         # Create model metadata
         metadata = ModelMetadata(
-            name=registration_request.name,
+            name=name,
             version="1",  # Initial version
-            description=registration_request.description,
-            model_type=registration_request.model_type,
-            algorithm=registration_request.algorithm,
-            framework=registration_request.framework,
-            metrics=registration_request.metrics,
-            tags=registration_request.tags,
-            training_dataset_version=registration_request.training_dataset_version,
+            description=description,
+            model_type=model_type,
+            algorithm=algorithm,
+            framework=framework,
+            metrics=parsed_metrics,
+            tags=parsed_tags,
+            training_dataset_version=training_dataset_version,
             created_by=current_user.username,
         )
 
@@ -189,7 +209,7 @@ async def register_model(
 
         # Load model securely based on framework
         model = await load_model_secure(
-            tmp_file_path, registration_request.framework, safe_filename
+            tmp_file_path, framework, safe_filename
         )
 
         # Register model
@@ -200,17 +220,17 @@ async def register_model(
 
         logger.info(
             "Model registered successfully",
-            model_name=registration_request.name,
+            model_name=name,
             version=model_version,
-            framework=registration_request.framework,
+            framework=framework,
         )
 
         return StandardResponse(
             success=True,
             data={
-                "model_name": registration_request.name,
+                "model_name": name,
                 "version": model_version,
-                "message": f"Model {registration_request.name} version {model_version} registered successfully",
+                "message": f"Model {name} version {model_version} registered successfully",
             },
             message="Model registered successfully",
             metadata=APIMetadata(
@@ -224,19 +244,19 @@ async def register_model(
         logger.error(
             "Model registration failed",
             error=str(e),
-            model_name=registration_request.name,
+            model_name=name,
         )
         raise HTTPException(status_code=400, detail=str(e))
     except ModelLoadError as e:
         logger.error(
-            "Model loading failed", error=str(e), model_name=registration_request.name
+            "Model loading failed", error=str(e), model_name=name
         )
         raise HTTPException(status_code=422, detail=f"Model loading failed: {str(e)}")
     except Exception as e:
         logger.error(
             "Unexpected error during model registration",
             error=str(e),
-            model_name=registration_request.name,
+            model_name=name,
         )
         raise HTTPException(
             status_code=500, detail=f"Failed to register model: {str(e)}"
