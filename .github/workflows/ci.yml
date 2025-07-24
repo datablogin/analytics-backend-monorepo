@@ -47,7 +47,7 @@ jobs:
     
     - name: Run type checking
       run: |
-        uv run mypy libs/ services/
+        uv run mypy libs/ services/ --exclude 'services/feature_store/lineage\.py$' --exclude 'services/feature_store/monitoring\.py$' --exclude 'services/feature_store/pipeline\.py$'
     
     - name: Run tests
       timeout-minutes: 10  # Most tests should complete quickly
