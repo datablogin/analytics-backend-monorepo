@@ -139,13 +139,17 @@ class StageTransitionRequest(BaseModel):
 async def register_model(
     request: Request,
     name: str = Form(..., description="Model name"),
-    model_type: str = Form(..., description="Type of model (classification, regression, etc.)"),
+    model_type: str = Form(
+        ..., description="Type of model (classification, regression, etc.)"
+    ),
     algorithm: str = Form(..., description="ML algorithm used"),
     framework: str = Form(..., description="ML framework (sklearn, lightgbm, etc.)"),
     description: str | None = Form(None, description="Model description"),
     metrics: str = Form("{}", description="Model performance metrics as JSON string"),
     tags: str = Form("{}", description="Custom tags for model as JSON string"),
-    training_dataset_version: str | None = Form(None, description="Version of training dataset"),
+    training_dataset_version: str | None = Form(
+        None, description="Version of training dataset"
+    ),
     model_file: UploadFile = File(..., description="Model file to upload"),
     current_user: User = Depends(get_current_user),
     registry: ModelRegistry = Depends(get_model_registry),
@@ -161,8 +165,8 @@ async def register_model(
         except json.JSONDecodeError as e:
             logger.error("Invalid JSON in form data", error=str(e))
             raise HTTPException(
-                status_code=400, 
-                detail=f"Invalid JSON format in metrics or tags: {str(e)}"
+                status_code=400,
+                detail=f"Invalid JSON format in metrics or tags: {str(e)}",
             )
 
         # Validate file size
@@ -208,9 +212,7 @@ async def register_model(
         await safe_file_write(content, tmp_file_path)
 
         # Load model securely based on framework
-        model = await load_model_secure(
-            tmp_file_path, framework, safe_filename
-        )
+        model = await load_model_secure(tmp_file_path, framework, safe_filename)
 
         # Register model
         model_version = registry.register_model(
@@ -248,9 +250,7 @@ async def register_model(
         )
         raise HTTPException(status_code=400, detail=str(e))
     except ModelLoadError as e:
-        logger.error(
-            "Model loading failed", error=str(e), model_name=name
-        )
+        logger.error("Model loading failed", error=str(e), model_name=name)
         raise HTTPException(status_code=422, detail=f"Model loading failed: {str(e)}")
     except Exception as e:
         logger.error(

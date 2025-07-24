@@ -52,30 +52,33 @@ async def test_user(async_db_session: AsyncSession):
 @pytest.fixture
 def client():
     """Create test client with overridden dependencies."""
-    from services.analytics_api.routes.models import get_current_user, get_model_registry
-    
+    from services.analytics_api.routes.models import (
+        get_current_user,
+        get_model_registry,
+    )
+
     # Create mock user
     mock_user = MagicMock()
     mock_user.username = "testuser"
     mock_user.id = 1
     mock_user.email = "test@example.com"
-    
+
     # Create mock registry
     mock_registry = MagicMock()
-    
+
     # Override dependencies
     app.dependency_overrides[get_current_user] = lambda: mock_user
     app.dependency_overrides[get_model_registry] = lambda: mock_registry
-    
+
     # Mock the secure model loader to avoid validation issues
     with patch("services.analytics_api.routes.models.load_model_secure") as mock_loader:
         mock_model = MagicMock()
         mock_model.predict = MagicMock(return_value=[0, 1, 0])
         mock_loader.return_value = mock_model
-        
+
         client = TestClient(app)
         yield client
-    
+
     # Clean up overrides
     app.dependency_overrides.clear()
 
@@ -93,6 +96,7 @@ class TestModelRegistryAPI:
         """Test registering a sklearn model."""
         # Get the mock registry from the client fixture and configure it
         from services.analytics_api.routes.models import get_model_registry
+
         mock_registry = app.dependency_overrides[get_model_registry]()
         mock_registry.register_model.return_value = "1"
 
@@ -135,8 +139,9 @@ class TestModelRegistryAPI:
         """Test listing models."""
         # Get the mock registry from the client fixture and configure it
         from services.analytics_api.routes.models import get_model_registry
+
         mock_registry = app.dependency_overrides[get_model_registry]()
-        
+
         mock_models = [
             {
                 "name": "model1",
