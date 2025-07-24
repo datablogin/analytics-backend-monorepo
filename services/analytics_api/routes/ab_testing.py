@@ -6,17 +6,18 @@ from typing import Any
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, Field
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from libs.analytics_core.ab_testing import (
+from libs.analytics_core.ab_testing_async import (
     ABTestExperiment,
-    ABTestingEngine,
+    AsyncABTestingEngine,
     ExperimentObjective,
     ExperimentStatus,
     ExperimentVariant,
     StoppingRule,
-    ab_testing_engine,
 )
 from libs.analytics_core.auth import get_current_user
+from libs.analytics_core.database import get_db_session
 from libs.analytics_core.models import User
 from libs.analytics_core.statistics import TestType
 from libs.api_common.response_models import APIMetadata, StandardResponse
@@ -25,24 +26,38 @@ logger = structlog.get_logger(__name__)
 router = APIRouter(prefix="/ab-testing", tags=["A/B Testing"])
 
 
+# Dependency to provide A/B testing engine
+def get_ab_testing_engine() -> AsyncABTestingEngine:
+    """Get A/B testing engine instance."""
+    return AsyncABTestingEngine(session_factory=None)
+
+
 # Request/Response Models
 class CreateExperimentRequest(BaseModel):
     """Request to create new A/B test experiment."""
 
-    name: str = Field(description="Experiment name")
-    description: str | None = Field(default=None, description="Experiment description")
-    feature_flag_key: str = Field(description="Associated feature flag key")
-    objective: str = Field(description="Primary objective")
-    hypothesis: str = Field(description="Experiment hypothesis")
-    variants: list[ExperimentVariant] = Field(description="Experiment variants")
-    primary_metric: str = Field(description="Primary success metric")
-    secondary_metrics: list[str] = Field(default_factory=list)
-    guardrail_metrics: list[str] = Field(default_factory=list)
-    target_audience: dict[str, Any] = Field(default_factory=dict)
-    exclusion_rules: dict[str, Any] = Field(default_factory=dict)
-    significance_level: float = Field(default=0.05)
-    power: float = Field(default=0.8)
-    minimum_detectable_effect: float | None = Field(default=None)
+    name: str = Field(description="Experiment name", min_length=1, max_length=255)
+    description: str | None = Field(
+        default=None, description="Experiment description", max_length=10000
+    )
+    feature_flag_key: str = Field(
+        description="Associated feature flag key", min_length=1, max_length=255
+    )
+    objective: str = Field(description="Primary objective", min_length=1)
+    hypothesis: str = Field(description="Experiment hypothesis", min_length=1)
+    variants: list[ExperimentVariant] = Field(
+        description="Experiment variants", min_length=2, max_length=10
+    )
+    primary_metric: str = Field(
+        description="Primary success metric", min_length=1, max_length=100
+    )
+    secondary_metrics: list[str] = Field(default_factory=list, max_length=20)
+    guardrail_metrics: list[str] = Field(default_factory=list, max_length=20)
+    target_audience: dict[str, Any] = Field(default_factory=dict, max_length=50)
+    exclusion_rules: dict[str, Any] = Field(default_factory=dict, max_length=50)
+    significance_level: float = Field(default=0.05, ge=0.001, le=0.2)
+    power: float = Field(default=0.8, ge=0.5, le=0.99)
+    minimum_detectable_effect: float | None = Field(default=None, ge=0.001, le=10.0)
     stopping_rules: StoppingRule | None = Field(default=None)
 
 
@@ -56,17 +71,17 @@ class StartExperimentRequest(BaseModel):
 class AssignVariantRequest(BaseModel):
     """Request to assign user to variant."""
 
-    user_id: str = Field(description="User ID")
-    user_attributes: dict[str, Any] = Field(default_factory=dict)
+    user_id: str = Field(description="User ID", min_length=1, max_length=255)
+    user_attributes: dict[str, Any] = Field(default_factory=dict, max_length=100)
 
 
 class TrackEventRequest(BaseModel):
     """Request to track experiment event."""
 
-    user_id: str = Field(description="User ID")
-    event_type: str = Field(description="Event type")
+    user_id: str = Field(description="User ID", min_length=1, max_length=255)
+    event_type: str = Field(description="Event type", min_length=1, max_length=100)
     event_value: float | str | bool | None = Field(default=None)
-    properties: dict[str, Any] = Field(default_factory=dict)
+    properties: dict[str, Any] = Field(default_factory=dict, max_length=100)
 
 
 class AnalyzeExperimentRequest(BaseModel):
@@ -95,7 +110,8 @@ async def create_experiment(
     request: Request,
     experiment_request: CreateExperimentRequest,
     current_user: User = Depends(get_current_user),
-    engine: ABTestingEngine = Depends(lambda: ab_testing_engine),
+    engine: AsyncABTestingEngine = Depends(get_ab_testing_engine),
+    db: AsyncSession = Depends(get_db_session),
 ) -> StandardResponse[dict]:
     """Create new A/B test experiment."""
     try:
@@ -120,7 +136,7 @@ async def create_experiment(
         )
 
         # Create experiment
-        created_experiment = engine.create_experiment(experiment)
+        created_experiment = await engine.create_experiment(experiment, db)
 
         logger.info(
             "A/B test experiment created via API",
@@ -161,12 +177,13 @@ async def start_experiment(
     experiment_id: str,
     start_request: StartExperimentRequest,
     current_user: User = Depends(get_current_user),
-    engine: ABTestingEngine = Depends(lambda: ab_testing_engine),
+    engine: AsyncABTestingEngine = Depends(get_ab_testing_engine),
+    db: AsyncSession = Depends(get_db_session),
 ) -> StandardResponse[dict]:
     """Start an A/B test experiment."""
     try:
         # Update experiment dates if provided
-        experiment = engine.get_experiment(experiment_id)
+        experiment = await engine.get_experiment(experiment_uuid=experiment_id, session=db)
         if not experiment:
             raise HTTPException(status_code=404, detail="Experiment not found")
 
@@ -176,7 +193,7 @@ async def start_experiment(
             experiment.end_date = start_request.end_date
 
         # Start experiment
-        success = engine.start_experiment(experiment_id)
+        success = await engine.start_experiment(experiment_uuid=experiment_id, session=db)
 
         if not success:
             raise HTTPException(status_code=400, detail="Failed to start experiment")
@@ -216,13 +233,15 @@ async def assign_user_to_variant(
     experiment_id: str,
     assign_request: AssignVariantRequest,
     current_user: User = Depends(get_current_user),
-    engine: ABTestingEngine = Depends(lambda: ab_testing_engine),
+    engine: AsyncABTestingEngine = Depends(get_ab_testing_engine),
+    db: AsyncSession = Depends(get_db_session),
 ) -> StandardResponse[dict]:
     """Assign user to experiment variant."""
     try:
-        variant = engine.assign_user_to_variant(
-            experiment_id=experiment_id,
+        variant = await engine.assign_user_to_variant(
+            experiment_uuid=experiment_id,
             user_id=assign_request.user_id,
+            session=db,
             user_attributes=assign_request.user_attributes
         )
 
@@ -244,9 +263,10 @@ async def assign_user_to_variant(
             )
 
         # Get feature value for assigned variant
-        feature_value = engine.get_feature_value(
-            experiment_id=experiment_id,
+        feature_value = await engine.get_feature_value(
+            experiment_uuid=experiment_id,
             user_id=assign_request.user_id,
+            session=db,
             user_attributes=assign_request.user_attributes
         )
 
@@ -283,16 +303,18 @@ async def track_experiment_event(
     experiment_id: str,
     event_request: TrackEventRequest,
     current_user: User = Depends(get_current_user),
-    engine: ABTestingEngine = Depends(lambda: ab_testing_engine),
+    engine: AsyncABTestingEngine = Depends(get_ab_testing_engine),
+    db: AsyncSession = Depends(get_db_session),
 ) -> StandardResponse[dict]:
     """Track event for experiment analysis."""
     try:
-        success = engine.track_event(
-            experiment_id=experiment_id,
+        success = await engine.track_event(
+            experiment_uuid=experiment_id,
             user_id=event_request.user_id,
             event_type=event_request.event_type,
+            session=db,
             event_value=event_request.event_value,
-            properties=event_request.properties,
+            properties=event_request.properties
         )
 
         if not success:
@@ -347,13 +369,15 @@ async def analyze_experiment(
     experiment_id: str,
     analyze_request: AnalyzeExperimentRequest,
     current_user: User = Depends(get_current_user),
-    engine: ABTestingEngine = Depends(lambda: ab_testing_engine),
+    engine: AsyncABTestingEngine = Depends(get_ab_testing_engine),
+    db: AsyncSession = Depends(get_db_session),
 ) -> StandardResponse[dict]:
     """Analyze experiment results."""
     try:
-        results = engine.analyze_experiment(
-            experiment_id=experiment_id,
-            test_type=analyze_request.test_type,
+        results = await engine.analyze_experiment(
+            experiment_uuid=experiment_id,
+            session=db,
+            test_type=analyze_request.test_type.value
         )
 
         logger.info(
@@ -388,11 +412,12 @@ async def check_stopping_criteria(
     request: Request,
     experiment_id: str,
     current_user: User = Depends(get_current_user),
-    engine: ABTestingEngine = Depends(lambda: ab_testing_engine),
+    engine: AsyncABTestingEngine = Depends(get_ab_testing_engine),
+    db: AsyncSession = Depends(get_db_session),
 ) -> StandardResponse[dict]:
     """Check if experiment should be stopped."""
     try:
-        criteria_result = engine.check_stopping_criteria(experiment_id)
+        criteria_result = await engine.check_stopping_criteria(experiment_uuid=experiment_id, session=db)
 
         return StandardResponse(
             success=True,
@@ -420,16 +445,17 @@ async def stop_experiment(
     experiment_id: str,
     reason: str | None = Query(None, description="Reason for stopping"),
     current_user: User = Depends(get_current_user),
-    engine: ABTestingEngine = Depends(lambda: ab_testing_engine),
+    engine: AsyncABTestingEngine = Depends(get_ab_testing_engine),
+    db: AsyncSession = Depends(get_db_session),
 ) -> StandardResponse[dict]:
     """Stop a running experiment."""
     try:
-        success = engine.stop_experiment(experiment_id, reason)
+        success = await engine.stop_experiment(experiment_uuid=experiment_id, reason=reason, session=db)
 
         if not success:
             raise HTTPException(status_code=400, detail="Failed to stop experiment")
 
-        experiment = engine.get_experiment(experiment_id)
+        experiment = await engine.get_experiment(experiment_uuid=experiment_id, session=db)
 
         logger.info(
             "A/B test experiment stopped via API",
@@ -468,11 +494,12 @@ async def get_experiment(
     request: Request,
     experiment_id: str,
     current_user: User = Depends(get_current_user),
-    engine: ABTestingEngine = Depends(lambda: ab_testing_engine),
+    engine: AsyncABTestingEngine = Depends(get_ab_testing_engine),
+    db: AsyncSession = Depends(get_db_session),
 ) -> StandardResponse[dict]:
     """Get experiment details."""
     try:
-        experiment = engine.get_experiment(experiment_id)
+        experiment = await engine.get_experiment(experiment_uuid=experiment_id, session=db)
 
         if not experiment:
             raise HTTPException(status_code=404, detail="Experiment not found")
@@ -502,11 +529,12 @@ async def list_experiments(
     created_by: str | None = Query(None, description="Filter by creator"),
     limit: int = Query(100, ge=1, le=1000, description="Maximum number of results"),
     current_user: User = Depends(get_current_user),
-    engine: ABTestingEngine = Depends(lambda: ab_testing_engine),
+    engine: AsyncABTestingEngine = Depends(get_ab_testing_engine),
+    db: AsyncSession = Depends(get_db_session),
 ) -> StandardResponse[list[ExperimentSummary]]:
     """List A/B test experiments."""
     try:
-        experiments = engine.list_experiments(status=status, created_by=created_by)
+        experiments = await engine.list_experiments(session=db, status=status.value if status else None, created_by=created_by)
 
         # Convert to summary format
         summaries = []
@@ -552,11 +580,12 @@ async def delete_experiment(
     request: Request,
     experiment_id: str,
     current_user: User = Depends(get_current_user),
-    engine: ABTestingEngine = Depends(lambda: ab_testing_engine),
+    engine: AsyncABTestingEngine = Depends(get_ab_testing_engine),
+    db: AsyncSession = Depends(get_db_session),
 ) -> StandardResponse[dict]:
     """Delete an experiment (archive)."""
     try:
-        experiment = engine.get_experiment(experiment_id)
+        experiment = await engine.get_experiment(experiment_uuid=experiment_id, session=db)
 
         if not experiment:
             raise HTTPException(status_code=404, detail="Experiment not found")

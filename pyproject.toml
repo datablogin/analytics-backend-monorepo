@@ -41,6 +41,9 @@ dependencies = [
     "croniter>=3.0.0",
     "types-croniter>=3.0.0",
     "types-requests>=2.31.0.0",
+    "scipy>=1.11.0",
+    "statsmodels>=0.14.0",
+    "pymc>=5.10.0",
 ]
 
 [project.optional-dependencies]
