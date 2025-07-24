@@ -2,7 +2,9 @@
 
 import tempfile
 from datetime import datetime, timezone
+from typing import Annotated
 
+import structlog
 from fastapi import (
     APIRouter,
     Depends,
@@ -27,27 +29,48 @@ from libs.ml_models import (
     ModelServingConfig,
 )
 
+from .model_exceptions import (
+    InvalidModelFileError,
+    ModelLoadError,
+    SecurityError,
+    UnsupportedFrameworkError,
+)
+from .model_loader import (
+    load_model_secure,
+    safe_file_cleanup,
+    safe_file_write,
+    sanitize_filename,
+)
+
+logger = structlog.get_logger(__name__)
 router = APIRouter(prefix="/models", tags=["ML Model Registry & Serving"])
 
-# Initialize model registry and server (singleton pattern)
-_model_registry = None
-_model_server = None
+# Maximum file size for uploads (100MB)
+MAX_FILE_SIZE = 100 * 1024 * 1024
 
 
-def get_model_registry() -> ModelRegistry:
-    """Get singleton model registry instance."""
-    global _model_registry
-    if _model_registry is None:
-        _model_registry = ModelRegistry(ModelRegistryConfig())
-    return _model_registry
+def get_model_registry_config() -> ModelRegistryConfig:
+    """Get model registry configuration."""
+    return ModelRegistryConfig()
 
 
-def get_model_server() -> ModelServer:
-    """Get singleton model server instance."""
-    global _model_server
-    if _model_server is None:
-        _model_server = ModelServer(ModelServingConfig())
-    return _model_server
+def get_model_serving_config() -> ModelServingConfig:
+    """Get model serving configuration."""
+    return ModelServingConfig()
+
+
+async def get_model_registry(
+    config: Annotated[ModelRegistryConfig, Depends(get_model_registry_config)],
+) -> ModelRegistry:
+    """Get model registry instance using dependency injection."""
+    return ModelRegistry(config)
+
+
+async def get_model_server(
+    config: Annotated[ModelServingConfig, Depends(get_model_serving_config)],
+) -> ModelServer:
+    """Get model server instance using dependency injection."""
+    return ModelServer(config)
 
 
 class ModelRegistrationRequest(BaseModel):
@@ -114,12 +137,31 @@ class StageTransitionRequest(BaseModel):
 async def register_model(
     request: Request,
     registration_request: ModelRegistrationRequest,
-    model_file: UploadFile = File(...),
+    model_file: UploadFile = File(..., description="Model file to upload"),
     current_user: User = Depends(get_current_user),
+    registry: ModelRegistry = Depends(get_model_registry),
 ) -> StandardResponse[dict]:
-    """Register a new ML model in the registry."""
+    """Register a new ML model in the registry with secure file handling."""
+    tmp_file_path = None
+
     try:
-        registry = get_model_registry()
+        # Validate file size
+        if model_file.size and model_file.size > MAX_FILE_SIZE:
+            raise HTTPException(
+                status_code=413,
+                detail=f"File size {model_file.size} bytes exceeds maximum allowed size {MAX_FILE_SIZE} bytes",
+            )
+
+        # Sanitize filename
+        safe_filename = sanitize_filename(model_file.filename)
+
+        logger.info(
+            "Starting model registration",
+            model_name=registration_request.name,
+            framework=registration_request.framework,
+            filename=safe_filename,
+            user=current_user.username,
+        )
 
         # Create model metadata
         metadata = ModelMetadata(
@@ -135,60 +177,74 @@ async def register_model(
             created_by=current_user.username,
         )
 
-        # Save uploaded model file temporarily
+        # Save uploaded model file temporarily with secure filename
         with tempfile.NamedTemporaryFile(
-            delete=False, suffix=f"_{model_file.filename}"
+            delete=False, suffix=f"_{safe_filename}", prefix="model_upload_"
         ) as tmp_file:
-            content = await model_file.read()
-            tmp_file.write(content)
             tmp_file_path = tmp_file.name
 
-        try:
-            # Load model based on framework
-            if registration_request.framework.lower() == "sklearn":
-                import pickle
+        # Read and write file content using async I/O
+        content = await model_file.read()
+        await safe_file_write(content, tmp_file_path)
 
-                with open(tmp_file_path, "rb") as f:
-                    model = pickle.load(f)
-            else:
-                # For other frameworks, we'd need specific loading logic
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"Framework {registration_request.framework} not yet supported for file upload",
-                )
+        # Load model securely based on framework
+        model = await load_model_secure(
+            tmp_file_path, registration_request.framework, safe_filename
+        )
 
-            # Register model
-            model_version = registry.register_model(
-                model=model,
-                metadata=metadata,
-            )
+        # Register model
+        model_version = registry.register_model(
+            model=model,
+            metadata=metadata,
+        )
 
-            return StandardResponse(
-                success=True,
-                data={
-                    "model_name": registration_request.name,
-                    "version": model_version,
-                    "message": f"Model {registration_request.name} version {model_version} registered successfully",
-                },
-                message="Model registered successfully",
-                metadata=APIMetadata(
-                    request_id=getattr(request.state, "request_id", "unknown"),
-                    version="v1",
-                    environment="development",
-                ),
-            )
+        logger.info(
+            "Model registered successfully",
+            model_name=registration_request.name,
+            version=model_version,
+            framework=registration_request.framework,
+        )
 
-        finally:
-            # Clean up temporary file
-            import os
+        return StandardResponse(
+            success=True,
+            data={
+                "model_name": registration_request.name,
+                "version": model_version,
+                "message": f"Model {registration_request.name} version {model_version} registered successfully",
+            },
+            message="Model registered successfully",
+            metadata=APIMetadata(
+                request_id=getattr(request.state, "request_id", "unknown"),
+                version="v1",
+                environment="development",
+            ),
+        )
 
-            if os.path.exists(tmp_file_path):
-                os.unlink(tmp_file_path)
-
+    except (InvalidModelFileError, SecurityError, UnsupportedFrameworkError) as e:
+        logger.error(
+            "Model registration failed",
+            error=str(e),
+            model_name=registration_request.name,
+        )
+        raise HTTPException(status_code=400, detail=str(e))
+    except ModelLoadError as e:
+        logger.error(
+            "Model loading failed", error=str(e), model_name=registration_request.name
+        )
+        raise HTTPException(status_code=422, detail=f"Model loading failed: {str(e)}")
     except Exception as e:
+        logger.error(
+            "Unexpected error during model registration",
+            error=str(e),
+            model_name=registration_request.name,
+        )
         raise HTTPException(
             status_code=500, detail=f"Failed to register model: {str(e)}"
         )
+    finally:
+        # Clean up temporary file
+        if tmp_file_path:
+            await safe_file_cleanup(tmp_file_path)
 
 
 @router.get("", response_model=StandardResponse[list[ModelListResponse]])
@@ -196,10 +252,10 @@ async def list_models(
     request: Request,
     limit: int = Query(100, ge=1, le=1000),
     current_user: User = Depends(get_current_user),
+    registry: ModelRegistry = Depends(get_model_registry),
 ) -> StandardResponse[list[ModelListResponse]]:
     """List all registered models."""
     try:
-        registry = get_model_registry()
         models_data = registry.list_models(max_results=limit)
 
         models = [
@@ -214,6 +270,8 @@ async def list_models(
             for model in models_data
         ]
 
+        logger.info("Listed models", count=len(models), user=current_user.username)
+
         return StandardResponse(
             success=True,
             data=models,
@@ -226,6 +284,7 @@ async def list_models(
         )
 
     except Exception as e:
+        logger.error("Failed to list models", error=str(e), user=current_user.username)
         raise HTTPException(status_code=500, detail=f"Failed to list models: {str(e)}")
 
 
@@ -240,11 +299,10 @@ async def get_model(
         None, description="Model stage (Production, Staging, etc.)"
     ),
     current_user: User = Depends(get_current_user),
+    registry: ModelRegistry = Depends(get_model_registry),
 ) -> StandardResponse[ModelVersionResponse]:
     """Get model details by name and version/stage."""
     try:
-        registry = get_model_registry()
-
         if version:
             metadata = registry.get_model_metadata(model_name, version)
         elif stage:
@@ -295,11 +353,10 @@ async def list_model_versions(
     model_name: str,
     limit: int = Query(100, ge=1, le=1000),
     current_user: User = Depends(get_current_user),
+    registry: ModelRegistry = Depends(get_model_registry),
 ) -> StandardResponse[list[ModelVersionResponse]]:
     """List all versions of a specific model."""
     try:
-        registry = get_model_registry()
-
         # Search for all versions of this model
         filter_string = f"name='{model_name}'"
         model_versions = registry.search_model_versions(
@@ -309,6 +366,8 @@ async def list_model_versions(
         )
 
         versions = []
+        skipped_count = 0
+
         for mv in model_versions:
             try:
                 metadata = registry.get_model_metadata(model_name, mv.version)
@@ -330,9 +389,23 @@ async def list_model_versions(
                         tags=metadata.tags,
                     )
                 )
-            except Exception:
-                # Skip versions that can't be loaded
-                continue
+            except Exception as e:
+                # Log the error instead of silently skipping
+                logger.warning(
+                    "Failed to load model version metadata",
+                    model_name=model_name,
+                    version=mv.version,
+                    error=str(e),
+                )
+                skipped_count += 1
+
+        if skipped_count > 0:
+            logger.info(
+                "Model versions list completed with some skipped",
+                model_name=model_name,
+                loaded_count=len(versions),
+                skipped_count=skipped_count,
+            )
 
         return StandardResponse(
             success=True,
@@ -346,6 +419,9 @@ async def list_model_versions(
         )
 
     except Exception as e:
+        logger.error(
+            "Failed to list model versions", model_name=model_name, error=str(e)
+        )
         raise HTTPException(
             status_code=500, detail=f"Failed to list model versions: {str(e)}"
         )
@@ -360,11 +436,10 @@ async def deploy_model(
     version: str,
     transition_request: StageTransitionRequest,
     current_user: User = Depends(get_current_user),
+    registry: ModelRegistry = Depends(get_model_registry),
 ) -> StandardResponse[dict]:
     """Deploy a model version to a specific stage."""
     try:
-        registry = get_model_registry()
-
         # Transition model to new stage
         model_version = registry.transition_model_stage(
             name=model_name,
@@ -402,16 +477,29 @@ async def predict(
     model_name: str,
     inference_request: InferenceRequest,
     current_user: User = Depends(get_current_user),
+    server: ModelServer = Depends(get_model_server),
 ) -> StandardResponse[InferenceResponse]:
     """Make predictions using a deployed model."""
     try:
-        server = get_model_server()
-
         # Override model name in request
         inference_request.model_name = model_name
 
+        logger.info(
+            "Starting model prediction",
+            model_name=model_name,
+            user=current_user.username,
+            request_id=inference_request.request_id,
+        )
+
         # Make prediction
         prediction_result = await server.predict(inference_request)
+
+        logger.info(
+            "Model prediction completed",
+            model_name=model_name,
+            predictions_count=len(prediction_result.predictions),
+            inference_time_ms=prediction_result.inference_time_ms,
+        )
 
         return StandardResponse(
             success=True,
@@ -433,17 +521,16 @@ async def get_model_status(
     request: Request,
     model_name: str,
     current_user: User = Depends(get_current_user),
+    server: ModelServer = Depends(get_model_server),
+    registry: ModelRegistry = Depends(get_model_registry),
 ) -> StandardResponse[dict]:
     """Get model health status and serving statistics."""
     try:
-        server = get_model_server()
-
         # Get model-specific stats
         model_stats = server.get_model_stats(model_name)
 
         if model_stats is None:
             # Model not loaded, try to get registry info
-            registry = get_model_registry()
             try:
                 latest_version = registry.get_latest_model_version(model_name)
                 model_stats = {
@@ -485,12 +572,11 @@ async def get_model_status(
 async def get_registry_stats(
     request: Request,
     current_user: User = Depends(get_current_user),
+    registry: ModelRegistry = Depends(get_model_registry),
+    server: ModelServer = Depends(get_model_server),
 ) -> StandardResponse[dict]:
     """Get model registry statistics."""
     try:
-        registry = get_model_registry()
-        server = get_model_server()
-
         registry_stats = registry.get_registry_stats()
         server_stats = server.get_server_stats()
 
@@ -521,11 +607,10 @@ async def delete_model(
     request: Request,
     model_name: str,
     current_user: User = Depends(get_current_user),
+    registry: ModelRegistry = Depends(get_model_registry),
 ) -> StandardResponse[dict]:
     """Delete a registered model and all its versions."""
     try:
-        registry = get_model_registry()
-
         # Delete model from registry
         registry.delete_model(model_name)
 
@@ -551,11 +636,10 @@ async def search_models(
     max_results: int = Query(100, ge=1, le=1000),
     order_by: list[str] | None = Query(None, description="Ordering criteria"),
     current_user: User = Depends(get_current_user),
+    registry: ModelRegistry = Depends(get_model_registry),
 ) -> StandardResponse[list[dict]]:
     """Search models and versions with filters."""
     try:
-        registry = get_model_registry()
-
         model_versions = registry.search_model_versions(
             filter_string=filter_string,
             max_results=max_results,
