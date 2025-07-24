@@ -10,7 +10,7 @@ import structlog
 from libs.analytics_core.models import BaseModel as SQLBaseModel
 from libs.observability.metrics import MLOpsMetrics
 from pydantic import BaseModel, Field
-from sqlalchemy import Column, DateTime, Float, String, Text, select
+from sqlalchemy import Boolean, Column, DateTime, Float, String, Text, select
 
 from .core import FeatureStoreService
 from .models import FeatureType
@@ -46,9 +46,7 @@ class FeatureMonitoringProfile(SQLBaseModel):
     baseline_stats: str = Column(Text, nullable=False)  # JSON string
     monitoring_config: str = Column(Text, nullable=True)  # JSON string
     last_updated: datetime = Column(DateTime(timezone=True), nullable=False)
-    is_active: bool = Column(
-        String(10), default="true"
-    )  # Store as string for SQLite compatibility
+    is_active: bool = Column(Boolean, default=True)
 
 
 class FeatureDriftDetection(SQLBaseModel):
@@ -65,9 +63,7 @@ class FeatureDriftDetection(SQLBaseModel):
     current_period_start: datetime = Column(DateTime(timezone=True), nullable=False)
     current_period_end: datetime = Column(DateTime(timezone=True), nullable=False)
     statistics: str = Column(Text, nullable=True)  # JSON string
-    alert_triggered: bool = Column(
-        String(10), default="false"
-    )  # Store as string for SQLite compatibility
+    alert_triggered: bool = Column(Boolean, default=False)
 
 
 class FeatureAlert(SQLBaseModel):
@@ -80,9 +76,7 @@ class FeatureAlert(SQLBaseModel):
     alert_level: str = Column(String(50), nullable=False)
     message: str = Column(Text, nullable=False)
     alert_data: str = Column(Text, nullable=True)  # JSON string
-    acknowledged: bool = Column(
-        String(10), default="false"
-    )  # Store as string for SQLite compatibility
+    acknowledged: bool = Column(Boolean, default=False)
     acknowledged_by: str = Column(String(255), nullable=True)
     acknowledged_at: datetime = Column(DateTime(timezone=True), nullable=True)
 
@@ -355,11 +349,81 @@ class FeatureMonitor:
                     baseline_stats=json.dumps(baseline_stats.model_dump(), default=str),
                     monitoring_config=json.dumps(config.model_dump()),
                     last_updated=datetime.utcnow(),
-                    is_active="true",
+                    is_active=True,
                 )
                 session.add(profile)
 
             await session.commit()
+
+    async def _calculate_statistics_only(
+        self,
+        feature_name: str,
+        start_time: datetime,
+        end_time: datetime,
+    ) -> BaselineStats:
+        """Calculate statistics without storing as baseline profile."""
+        try:
+            # Get feature definition to understand the feature type
+            feature_def = await self.feature_store_service.get_feature(feature_name)
+            if not feature_def:
+                raise ValueError(f"Feature '{feature_name}' not found")
+
+            # Get historical feature values
+            async with self.feature_store_service.db_manager.get_session() as session:
+                from .models import FeatureValue
+
+                stmt = select(FeatureValue).where(
+                    FeatureValue.feature_name == feature_name,
+                    FeatureValue.timestamp >= start_time,
+                    FeatureValue.timestamp <= end_time,
+                )
+
+                result = await session.execute(stmt)
+                feature_values = result.scalars().all()
+
+            if not feature_values:
+                raise ValueError(
+                    f"No feature values found for '{feature_name}' in the specified time range"
+                )
+
+            # Extract values and convert from JSON
+            values = []
+            null_count = 0
+
+            for fv in feature_values:
+                try:
+                    value = json.loads(fv.value)
+                    if value is None:
+                        null_count += 1
+                    else:
+                        values.append(value)
+                except (json.JSONDecodeError, TypeError):
+                    # Handle non-JSON values
+                    if fv.value is None or fv.value == "null":
+                        null_count += 1
+                    else:
+                        values.append(fv.value)
+
+            total_count = len(feature_values)
+            null_percentage = (null_count / total_count) * 100 if total_count > 0 else 0
+
+            # Calculate statistics based on feature type
+            if feature_def.feature_type in [FeatureType.INTEGER, FeatureType.FLOAT]:
+                return self._calculate_numerical_stats(
+                    values, total_count, null_percentage
+                )
+            else:
+                return self._calculate_categorical_stats(
+                    values, total_count, null_percentage
+                )
+
+        except Exception as error:
+            logger.error(
+                "Failed to calculate statistics",
+                feature_name=feature_name,
+                error=str(error),
+            )
+            raise
 
     async def detect_drift(
         self,
@@ -390,8 +454,8 @@ class FeatureMonitor:
                 **json.loads(baseline_profile.monitoring_config or "{}")
             )
 
-            # Get current period statistics
-            current_stats = await self.create_baseline(
+            # Get current period statistics without storing as baseline
+            current_stats = await self._calculate_statistics_only(
                 feature_name, current_start_time, current_end_time
             )
 
@@ -551,11 +615,9 @@ class FeatureMonitor:
             baseline_pct = max(baseline_pct, epsilon)
             current_pct = max(current_pct, epsilon)
 
-            psi += (
-                (current_pct - baseline_pct)
-                * (current_pct - baseline_pct)
-                / baseline_pct
-            )
+            # Correct PSI formula: (current - baseline) * ln(current / baseline)
+            import math
+            psi += (current_pct - baseline_pct) * math.log(current_pct / baseline_pct)
 
         return min(psi, 1.0)
 
@@ -579,7 +641,7 @@ class FeatureMonitor:
         async with self.feature_store_service.db_manager.get_session() as session:
             stmt = select(FeatureMonitoringProfile).where(
                 FeatureMonitoringProfile.feature_name == feature_name,
-                FeatureMonitoringProfile.is_active == "true",
+                FeatureMonitoringProfile.is_active,
             )
             result = await session.execute(stmt)
             return result.scalar_one_or_none()
@@ -607,7 +669,7 @@ class FeatureMonitor:
                 current_period_start=current_start_time,
                 current_period_end=current_end_time,
                 statistics=json.dumps(statistics, default=str),
-                alert_triggered="false",
+                alert_triggered=False,
             )
 
             session.add(detection)
@@ -655,7 +717,7 @@ class FeatureMonitor:
                 alert_level=alert_level.value,
                 message=message,
                 alert_data=json.dumps(alert_data or {}, default=str),
-                acknowledged="false",
+                acknowledged=False,
             )
 
             session.add(alert)
@@ -688,9 +750,7 @@ class FeatureMonitor:
             if alert_level:
                 stmt = stmt.where(FeatureAlert.alert_level == alert_level.value)
             if acknowledged is not None:
-                stmt = stmt.where(
-                    FeatureAlert.acknowledged == ("true" if acknowledged else "false")
-                )
+                stmt = stmt.where(FeatureAlert.acknowledged == acknowledged)
 
             stmt = stmt.order_by(FeatureAlert.created_at.desc()).limit(limit)
 
@@ -705,7 +765,7 @@ class FeatureMonitor:
                     alert_level=AlertLevel(alert.alert_level),
                     message=alert.message,
                     alert_data=json.loads(alert.alert_data or "{}"),
-                    acknowledged=alert.acknowledged == "true",
+                    acknowledged=alert.acknowledged,
                     acknowledged_by=alert.acknowledged_by,
                     acknowledged_at=alert.acknowledged_at,
                     created_at=alert.created_at,
@@ -718,7 +778,7 @@ class FeatureMonitor:
         async with self.feature_store_service.db_manager.get_session() as session:
             alert = await session.get(FeatureAlert, alert_id)
             if alert:
-                alert.acknowledged = "true"
+                alert.acknowledged = True
                 alert.acknowledged_by = acknowledged_by
                 alert.acknowledged_at = datetime.utcnow()
                 await session.commit()

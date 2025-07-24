@@ -80,7 +80,7 @@ def upgrade() -> None:
         sa.Column("baseline_stats", sa.Text(), nullable=False),
         sa.Column("monitoring_config", sa.Text(), nullable=True),
         sa.Column("last_updated", sa.DateTime(timezone=True), nullable=False),
-        sa.Column("is_active", sa.String(length=10), nullable=False, default="true"),
+        sa.Column("is_active", sa.Boolean(), nullable=False, default=True),
         sa.PrimaryKeyConstraint("id"),
         sa.UniqueConstraint("feature_name"),
     )
@@ -121,7 +121,7 @@ def upgrade() -> None:
         sa.Column("current_period_end", sa.DateTime(timezone=True), nullable=False),
         sa.Column("statistics", sa.Text(), nullable=True),
         sa.Column(
-            "alert_triggered", sa.String(length=10), nullable=False, default="false"
+            "alert_triggered", sa.Boolean(), nullable=False, default=False
         ),
         sa.PrimaryKeyConstraint("id"),
     )
@@ -158,7 +158,7 @@ def upgrade() -> None:
         sa.Column("message", sa.Text(), nullable=False),
         sa.Column("alert_data", sa.Text(), nullable=True),
         sa.Column(
-            "acknowledged", sa.String(length=10), nullable=False, default="false"
+            "acknowledged", sa.Boolean(), nullable=False, default=False
         ),
         sa.Column("acknowledged_by", sa.String(length=255), nullable=True),
         sa.Column("acknowledged_at", sa.DateTime(timezone=True), nullable=True),
@@ -194,7 +194,7 @@ def upgrade() -> None:
         sa.Column("description", sa.Text(), nullable=True),
         sa.Column("owner", sa.String(length=255), nullable=True),
         sa.Column("tags", sa.Text(), nullable=True),
-        sa.Column("is_active", sa.String(length=10), nullable=False, default="true"),
+        sa.Column("is_active", sa.Boolean(), nullable=False, default=True),
         sa.PrimaryKeyConstraint("id"),
         sa.UniqueConstraint("name"),
     )
@@ -224,7 +224,7 @@ def upgrade() -> None:
         sa.Column("target_node_id", sa.Integer(), nullable=False),
         sa.Column("relation_type", sa.String(length=50), nullable=False),
         sa.Column("metadata", sa.Text(), nullable=True),
-        sa.Column("strength", sa.String(length=10), nullable=False, default="1.0"),
+        sa.Column("strength", sa.Float(), nullable=False, default=1.0),
         sa.PrimaryKeyConstraint("id"),
         sa.ForeignKeyConstraint(
             ["source_node_id"],

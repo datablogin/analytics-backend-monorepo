@@ -414,7 +414,7 @@ class TestFeatureMonitor:
         mock_alert.alert_level = AlertLevel.WARNING.value
         mock_alert.message = "Drift detected"
         mock_alert.alert_data = '{"drift_score": 0.4}'
-        mock_alert.acknowledged = "false"
+        mock_alert.acknowledged = False
         mock_alert.acknowledged_by = None
         mock_alert.acknowledged_at = None
         mock_alert.created_at = datetime.utcnow()
@@ -443,7 +443,7 @@ class TestFeatureMonitor:
 
         # Mock alert record
         mock_alert = Mock()
-        mock_alert.acknowledged = "false"
+        mock_alert.acknowledged = False
         mock_alert.acknowledged_by = None
         mock_alert.acknowledged_at = None
         mock_session.get.return_value = mock_alert
@@ -453,7 +453,7 @@ class TestFeatureMonitor:
 
         # Verify
         assert result is True
-        assert mock_alert.acknowledged == "true"
+        assert mock_alert.acknowledged
         assert mock_alert.acknowledged_by == "admin"
         assert mock_alert.acknowledged_at is not None
         mock_session.commit.assert_called_once()

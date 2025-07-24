@@ -269,12 +269,36 @@ class FeaturePipelineOrchestrator:
                         records_processed=records_processed,
                     )
 
-            # Write features to store
+            # Write features to store with rollback mechanism
             if feature_values:
-                await self.feature_store_service.write_feature_values_batch(
-                    feature_values
-                )
-                features_processed = len(feature_values)
+                try:
+                    await self.feature_store_service.write_feature_values_batch(
+                        feature_values
+                    )
+                    features_processed = len(feature_values)
+
+                    logger.info(
+                        "Batch write successful",
+                        pipeline_name=config.name,
+                        run_id=run_id,
+                        features_written=features_processed,
+                    )
+                except Exception as write_error:
+                    logger.error(
+                        "Batch write failed, rolling back pipeline run",
+                        pipeline_name=config.name,
+                        run_id=run_id,
+                        error=str(write_error),
+                    )
+                    # Mark pipeline as failed due to write error
+                    await self._update_pipeline_run(
+                        session,
+                        run_id,
+                        PipelineStatus.FAILED,
+                        end_time=datetime.utcnow(),
+                        error_message=f"Feature write failed: {str(write_error)}",
+                    )
+                    raise write_error
 
             metrics = {
                 "data_source_records": len(data),
@@ -332,24 +356,109 @@ class FeaturePipelineOrchestrator:
             file_path = source_config.get("file_path")
             if not file_path:
                 raise ValueError("CSV source requires file_path")
+            import pandas as pd
             return pd.read_csv(file_path)
 
         elif source_type == "database":
-            # Placeholder for database source
+            # Database source implementation
             connection_string = source_config.get("connection_string")
             query = source_config.get("query")
             if not connection_string or not query:
                 raise ValueError("Database source requires connection_string and query")
-            # In real implementation, use pandas.read_sql
-            return pd.DataFrame()
+
+            # Import here to avoid circular imports
+            import pandas as pd
+            from sqlalchemy import create_engine
+
+            try:
+                engine = create_engine(connection_string)
+                df = pd.read_sql(query, engine)
+
+                logger.info(
+                    "Database source loaded successfully",
+                    records_loaded=len(df),
+                    columns=list(df.columns),
+                )
+
+                return df
+            except Exception as e:
+                logger.error(
+                    "Failed to load data from database source",
+                    connection_string=connection_string[:50] + "...",  # Truncate for security
+                    query=query[:100] + "..." if len(query) > 100 else query,
+                    error=str(e),
+                )
+                raise ValueError(f"Database source failed: {str(e)}")
 
         elif source_type == "api":
-            # Placeholder for API source
+            # API source implementation
             url = source_config.get("url")
+            headers = source_config.get("headers", {})
+            method = source_config.get("method", "GET").upper()
+            params = source_config.get("params", {})
+            data = source_config.get("data")
+
             if not url:
                 raise ValueError("API source requires url")
-            # In real implementation, fetch from API and convert to DataFrame
-            return pd.DataFrame()
+
+            try:
+                import httpx
+                import pandas as pd
+
+                async with httpx.AsyncClient() as client:
+                    if method == "GET":
+                        response = await client.get(url, headers=headers, params=params)
+                    elif method == "POST":
+                        response = await client.post(url, headers=headers, json=data)
+                    else:
+                        raise ValueError(f"Unsupported HTTP method: {method}")
+
+                    response.raise_for_status()
+
+                    # Try to parse as JSON first
+                    try:
+                        json_data = response.json()
+                        # Handle different JSON structures
+                        if isinstance(json_data, list):
+                            df = pd.DataFrame(json_data)
+                        elif isinstance(json_data, dict):
+                            # If it's a dict, look for common data keys
+                            data_key = None
+                            for key in ["data", "results", "items", "records"]:
+                                if key in json_data and isinstance(json_data[key], list):
+                                    data_key = key
+                                    break
+
+                            if data_key:
+                                df = pd.DataFrame(json_data[data_key])
+                            else:
+                                # Convert single dict to DataFrame
+                                df = pd.DataFrame([json_data])
+                        else:
+                            raise ValueError("JSON response is not in expected format")
+
+                    except (ValueError, KeyError):
+                        # Fallback to CSV parsing if JSON fails
+                        df = pd.read_csv(pd.StringIO(response.text))
+
+                logger.info(
+                    "API source loaded successfully",
+                    url=url,
+                    method=method,
+                    records_loaded=len(df),
+                    columns=list(df.columns),
+                )
+
+                return df
+
+            except Exception as e:
+                logger.error(
+                    "Failed to load data from API source",
+                    url=url,
+                    method=method,
+                    error=str(e),
+                )
+                raise ValueError(f"API source failed: {str(e)}")
 
         else:
             raise ValueError(f"Unsupported source type: {source_type}")
@@ -357,67 +466,170 @@ class FeaturePipelineOrchestrator:
     async def _apply_transformations(
         self, data: pd.DataFrame, transformations: list[dict[str, Any]]
     ) -> list[FeatureValueWrite]:
-        """Apply feature transformations to data."""
+        """Apply feature transformations to data using vectorized operations."""
         feature_values = []
+        timestamp = datetime.utcnow()
 
-        for _, row in data.iterrows():
-            entity_id = str(
-                row.get("entity_id", row.iloc[0])
-            )  # Use first column as entity_id if not specified
-            timestamp = datetime.utcnow()
+        # Determine entity_id column
+        entity_id_col = "entity_id" if "entity_id" in data.columns else data.columns[0]
+        entity_ids = data[entity_id_col].astype(str)
 
-            for transformation in transformations:
-                feature_name = transformation.get("feature_name")
-                expression = transformation.get("expression")
+        for transformation in transformations:
+            feature_name = transformation.get("feature_name")
+            expression = transformation.get("expression")
 
-                if not feature_name or not expression:
-                    continue
+            if not feature_name or not expression:
+                continue
 
-                try:
-                    # Simple expression evaluation (in production, use safer evaluation)
-                    # This is a simplified version - production should use proper expression parser
-                    value = self._evaluate_expression(expression, row)
+            try:
+                # Process transformations in batches for better performance
+                batch_size = 1000
 
-                    feature_values.append(
-                        FeatureValueWrite(
-                            feature_name=feature_name,
-                            entity_id=entity_id,
-                            value=value,
-                            timestamp=timestamp,
-                        )
-                    )
+                for i in range(0, len(data), batch_size):
+                    batch_data = data.iloc[i:i + batch_size]
+                    batch_entity_ids = entity_ids.iloc[i:i + batch_size]
 
-                except Exception as error:
-                    logger.warning(
-                        "Feature transformation failed",
-                        feature_name=feature_name,
-                        expression=expression,
-                        entity_id=entity_id,
-                        error=str(error),
-                    )
+                    # Apply transformation to each row in the batch
+                    for batch_idx, (_global_idx, row) in enumerate(batch_data.iterrows()):
+                        entity_id = str(batch_entity_ids.iloc[batch_idx])
+
+                        try:
+                            value = self._evaluate_expression(expression, row)
+
+                            feature_values.append(
+                                FeatureValueWrite(
+                                    feature_name=feature_name,
+                                    entity_id=entity_id,
+                                    value=value,
+                                    timestamp=timestamp,
+                                )
+                            )
+                        except Exception as error:
+                            logger.warning(
+                                "Feature transformation failed for row",
+                                feature_name=feature_name,
+                                expression=expression,
+                                entity_id=entity_id,
+                                row_index=i + batch_idx,
+                                error=str(error),
+                            )
+
+            except Exception as error:
+                logger.error(
+                    "Batch transformation failed",
+                    feature_name=feature_name,
+                    expression=expression,
+                    error=str(error),
+                )
 
         return feature_values
 
     def _evaluate_expression(self, expression: str, row: pd.Series) -> Any:
-        """Evaluate feature transformation expression."""
-        # This is a simplified implementation
-        # Production should use a proper expression parser like ast.literal_eval
-        # or a domain-specific language
+        """Evaluate feature transformation expression safely."""
+        import ast
+        import math
+        import operator
 
-        # Replace column references with actual values
-        for col_name in row.index:
-            expression = expression.replace(f"${col_name}", str(row[col_name]))
+        # Safe operators for mathematical expressions
+        safe_operators = {
+            ast.Add: operator.add,
+            ast.Sub: operator.sub,
+            ast.Mult: operator.mul,
+            ast.Div: operator.truediv,
+            ast.FloorDiv: operator.floordiv,
+            ast.Mod: operator.mod,
+            ast.Pow: operator.pow,
+            ast.USub: operator.neg,
+            ast.UAdd: operator.pos,
+        }
 
-        # Simple mathematical expressions
-        try:
-            # Basic safety check - only allow certain characters
-            allowed_chars = set("0123456789+-*/.() ")
-            if all(c in allowed_chars or c.isalnum() for c in expression):
-                return eval(expression)  # Note: eval is dangerous in production
+        # Safe functions for mathematical expressions
+        safe_functions = {
+            'abs': abs,
+            'max': max,
+            'min': min,
+            'round': round,
+            'sqrt': math.sqrt,
+            'log': math.log,
+            'exp': math.exp,
+            'sin': math.sin,
+            'cos': math.cos,
+            'tan': math.tan,
+        }
+
+        def _safe_eval(node, context: dict[str, Any]) -> Any:
+            """Safely evaluate AST node with restricted operations."""
+            if isinstance(node, ast.Expression):
+                return _safe_eval(node.body, context)
+            elif isinstance(node, ast.Constant):  # Python 3.8+
+                return node.value
+            elif isinstance(node, ast.Num):  # Legacy for older Python
+                return node.n
+            elif isinstance(node, ast.Str):  # Legacy for older Python
+                return node.s
+            elif isinstance(node, ast.Name):
+                if node.id in context:
+                    return context[node.id]
+                elif node.id in safe_functions:
+                    return safe_functions[node.id]
+                else:
+                    raise ValueError(f"Unknown variable or function: {node.id}")
+            elif isinstance(node, ast.BinOp):
+                left = _safe_eval(node.left, context)
+                right = _safe_eval(node.right, context)
+                op_func = safe_operators.get(type(node.op))
+                if op_func:
+                    return op_func(left, right)
+                else:
+                    raise ValueError(f"Unsupported operation: {type(node.op)}")
+            elif isinstance(node, ast.UnaryOp):
+                operand = _safe_eval(node.operand, context)
+                op_func = safe_operators.get(type(node.op))
+                if op_func:
+                    return op_func(operand)
+                else:
+                    raise ValueError(f"Unsupported unary operation: {type(node.op)}")
+            elif isinstance(node, ast.Call):
+                func_name = node.func.id if isinstance(node.func, ast.Name) else None
+                if func_name in safe_functions:
+                    args = [_safe_eval(arg, context) for arg in node.args]
+                    return safe_functions[func_name](*args)
+                else:
+                    raise ValueError(f"Unsupported function call: {func_name}")
             else:
-                return expression  # Return as string if complex
-        except Exception:
-            return row.iloc[0]  # Return first column value as fallback
+                raise ValueError(f"Unsupported AST node type: {type(node)}")
+
+        try:
+            # Replace column references with actual values
+            processed_expression = expression
+            context = {}
+
+            for col_name in row.index:
+                var_name = f"col_{col_name.replace(' ', '_').replace('-', '_')}"
+                processed_expression = processed_expression.replace(f"${col_name}", var_name)
+                context[var_name] = row[col_name]
+
+            # Parse and evaluate the expression safely
+            parsed = ast.parse(processed_expression, mode='eval')
+            result = _safe_eval(parsed, context)
+
+            return result
+
+        except (ValueError, SyntaxError, TypeError) as e:
+            logger.warning(
+                "Expression evaluation failed",
+                expression=expression,
+                error=str(e),
+            )
+            # Return the original column value as fallback
+            return row.iloc[0] if len(row) > 0 else None
+        except Exception as e:
+            logger.error(
+                "Unexpected error in expression evaluation",
+                expression=expression,
+                error=str(e),
+            )
+            return row.iloc[0] if len(row) > 0 else None
 
     async def _update_pipeline_run(
         self,
@@ -500,7 +712,7 @@ class FeaturePipelineOrchestrator:
                 for run in runs
             ]
 
-    async def cancel_pipeline(self, pipeline_name: str) -> bool:
+    def cancel_pipeline(self, pipeline_name: str) -> bool:
         """Cancel a running pipeline."""
         if pipeline_name in self._running_pipelines:
             task = self._running_pipelines[pipeline_name]

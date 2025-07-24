@@ -8,7 +8,16 @@ from typing import Any
 import structlog
 from libs.analytics_core.models import BaseModel as SQLBaseModel
 from pydantic import BaseModel, Field
-from sqlalchemy import Column, ForeignKey, Integer, String, Text, select
+from sqlalchemy import (
+    Boolean,
+    Column,
+    Float,
+    ForeignKey,
+    Integer,
+    String,
+    Text,
+    select,
+)
 
 from .core import FeatureStoreService
 
@@ -50,9 +59,7 @@ class LineageNode(SQLBaseModel):
     description: str = Column(Text, nullable=True)
     owner: str = Column(String(255), nullable=True)
     tags: str = Column(Text, nullable=True)  # JSON string
-    is_active: bool = Column(
-        String(10), default="true"
-    )  # Store as string for SQLite compatibility
+    is_active: bool = Column(Boolean, default=True)
 
 
 class LineageEdge(SQLBaseModel):
@@ -70,9 +77,7 @@ class LineageEdge(SQLBaseModel):
     edge_metadata: str = Column(
         "metadata", Text, nullable=True
     )  # JSON string, aliased to avoid SQLAlchemy conflict
-    strength: float = Column(
-        String(10), default="1.0"
-    )  # Store as string for SQLite compatibility
+    strength: float = Column(Float, default=1.0)
 
 
 # Pydantic Models
@@ -171,7 +176,7 @@ class LineageTracker:
                     description=description,
                     owner=owner,
                     tags=json.dumps(tags or []),
-                    is_active="true",
+                    is_active=True,
                 )
 
                 session.add(node)
@@ -569,7 +574,7 @@ class LineageTracker:
             description=node.description,
             owner=node.owner,
             tags=json.loads(node.tags or "[]"),
-            is_active=node.is_active == "true",
+            is_active=node.is_active,
             created_at=node.created_at,
             updated_at=node.updated_at,
         )
