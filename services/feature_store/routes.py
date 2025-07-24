@@ -1,6 +1,6 @@
 """Feature store API routes."""
 
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from libs.analytics_core.database import DatabaseManager, get_database_manager
@@ -10,6 +10,11 @@ from libs.api_common.response_models import (
 
 from .cache import get_cache
 from .core import FeatureStoreService
+from .lineage import (
+    ImpactAnalysisResult,
+    LineageGraph,
+    LineageTracker,
+)
 from .models import (
     FeatureDefinitionCreate,
     FeatureDefinitionResponse,
@@ -22,6 +27,18 @@ from .models import (
     FeatureValueResponse,
     FeatureValueWrite,
 )
+from .monitoring import (
+    AlertLevel,
+    DriftDetectionResult,
+    FeatureAlertModel,
+    FeatureMonitor,
+    MonitoringConfig,
+)
+from .pipeline import (
+    FeaturePipelineOrchestrator,
+    PipelineConfig,
+    PipelineExecutionResult,
+)
 
 router = APIRouter(prefix="/feature-store", tags=["feature-store"])
 
@@ -31,6 +48,27 @@ def get_feature_store_service(
 ) -> FeatureStoreService:
     """Dependency to get feature store service."""
     return FeatureStoreService(db_manager)
+
+
+def get_lineage_tracker(
+    feature_store_service: FeatureStoreService = Depends(get_feature_store_service),
+) -> LineageTracker:
+    """Dependency to get lineage tracker."""
+    return LineageTracker(feature_store_service)
+
+
+def get_feature_monitor(
+    feature_store_service: FeatureStoreService = Depends(get_feature_store_service),
+) -> FeatureMonitor:
+    """Dependency to get feature monitor."""
+    return FeatureMonitor(feature_store_service)
+
+
+def get_pipeline_orchestrator(
+    feature_store_service: FeatureStoreService = Depends(get_feature_store_service),
+) -> FeaturePipelineOrchestrator:
+    """Dependency to get pipeline orchestrator."""
+    return FeaturePipelineOrchestrator(feature_store_service)
 
 
 @router.post(
@@ -411,6 +449,356 @@ async def discover_features(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to discover features: {str(e)}",
+        )
+
+
+# Pipeline Management Endpoints
+@router.post(
+    "/pipelines",
+    response_model=StandardResponse[str],
+    status_code=status.HTTP_201_CREATED,
+    summary="Register feature pipeline",
+    description="Register a new feature pipeline configuration.",
+)
+async def register_pipeline(
+    config: PipelineConfig,
+    orchestrator: FeaturePipelineOrchestrator = Depends(get_pipeline_orchestrator),
+) -> StandardResponse[str]:
+    """Register a new feature pipeline."""
+    try:
+        pipeline_name = await orchestrator.register_pipeline(config)
+        return StandardResponse[str](
+            success=True,
+            data=pipeline_name,
+            message="Pipeline registered successfully",
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to register pipeline: {str(e)}",
+        )
+
+
+@router.post(
+    "/pipelines/{pipeline_name}/execute",
+    response_model=StandardResponse[PipelineExecutionResult],
+    summary="Execute pipeline",
+    description="Execute a registered feature pipeline.",
+)
+async def execute_pipeline(
+    pipeline_name: str,
+    orchestrator: FeaturePipelineOrchestrator = Depends(get_pipeline_orchestrator),
+) -> StandardResponse[PipelineExecutionResult]:
+    """Execute a feature pipeline."""
+    try:
+        result = await orchestrator.execute_pipeline(pipeline_name)
+        return StandardResponse[PipelineExecutionResult](
+            success=True,
+            data=result,
+            message="Pipeline executed successfully",
+        )
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e),
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to execute pipeline: {str(e)}",
+        )
+
+
+@router.get(
+    "/pipelines/{pipeline_name}/runs",
+    response_model=StandardResponse[list[PipelineExecutionResult]],
+    summary="Get pipeline runs",
+    description="Get execution history for a pipeline.",
+)
+async def get_pipeline_runs(
+    pipeline_name: str,
+    limit: int = Query(100, ge=1, le=1000),
+    orchestrator: FeaturePipelineOrchestrator = Depends(get_pipeline_orchestrator),
+) -> StandardResponse[list[PipelineExecutionResult]]:
+    """Get pipeline execution history."""
+    try:
+        runs = await orchestrator.get_pipeline_runs(pipeline_name, limit=limit)
+        return StandardResponse[list[PipelineExecutionResult]](
+            success=True,
+            data=runs,
+            message=f"Found {len(runs)} pipeline runs",
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to get pipeline runs: {str(e)}",
+        )
+
+
+# Monitoring Endpoints
+@router.post(
+    "/monitoring/{feature_name}/baseline",
+    response_model=StandardResponse[dict],
+    summary="Create monitoring baseline",
+    description="Create baseline statistics for feature monitoring.",
+)
+async def create_monitoring_baseline(
+    feature_name: str,
+    days_back: int = Query(7, ge=1, le=90, description="Days back for baseline"),
+    config: MonitoringConfig | None = None,
+    monitor: FeatureMonitor = Depends(get_feature_monitor),
+) -> StandardResponse[dict]:
+    """Create baseline for feature monitoring."""
+    try:
+        end_time = datetime.utcnow()
+        start_time = end_time - timedelta(days=days_back)
+
+        baseline_stats = await monitor.create_baseline(
+            feature_name, start_time, end_time, config
+        )
+
+        return StandardResponse[dict](
+            success=True,
+            data=baseline_stats.model_dump(),
+            message="Monitoring baseline created successfully",
+        )
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to create baseline: {str(e)}",
+        )
+
+
+@router.post(
+    "/monitoring/{feature_name}/drift-detection",
+    response_model=StandardResponse[DriftDetectionResult],
+    summary="Detect feature drift",
+    description="Detect drift for a feature against its baseline.",
+)
+async def detect_feature_drift(
+    feature_name: str,
+    hours_back: int = Query(
+        24, ge=1, le=168, description="Hours back for drift detection"
+    ),
+    monitor: FeatureMonitor = Depends(get_feature_monitor),
+) -> StandardResponse[DriftDetectionResult]:
+    """Detect feature drift."""
+    try:
+        end_time = datetime.utcnow()
+        start_time = end_time - timedelta(hours=hours_back)
+
+        drift_result = await monitor.detect_drift(feature_name, start_time, end_time)
+
+        return StandardResponse[DriftDetectionResult](
+            success=True,
+            data=drift_result,
+            message="Drift detection completed successfully",
+        )
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to detect drift: {str(e)}",
+        )
+
+
+@router.get(
+    "/monitoring/alerts",
+    response_model=StandardResponse[list[FeatureAlertModel]],
+    summary="Get feature alerts",
+    description="Get feature monitoring alerts with optional filtering.",
+)
+async def get_feature_alerts(
+    feature_name: str | None = Query(None, description="Filter by feature name"),
+    alert_level: AlertLevel | None = Query(None, description="Filter by alert level"),
+    acknowledged: bool | None = Query(
+        None, description="Filter by acknowledgment status"
+    ),
+    limit: int = Query(100, ge=1, le=1000),
+    monitor: FeatureMonitor = Depends(get_feature_monitor),
+) -> StandardResponse[list[FeatureAlertModel]]:
+    """Get feature alerts."""
+    try:
+        alerts = await monitor.get_alerts(
+            feature_name=feature_name,
+            alert_level=alert_level,
+            acknowledged=acknowledged,
+            limit=limit,
+        )
+
+        return StandardResponse[list[FeatureAlertModel]](
+            success=True,
+            data=alerts,
+            message=f"Found {len(alerts)} alerts",
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to get alerts: {str(e)}",
+        )
+
+
+@router.put(
+    "/monitoring/alerts/{alert_id}/acknowledge",
+    response_model=StandardResponse[None],
+    summary="Acknowledge alert",
+    description="Acknowledge a feature monitoring alert.",
+)
+async def acknowledge_alert(
+    alert_id: int,
+    acknowledged_by: str = Query(..., description="Who is acknowledging the alert"),
+    monitor: FeatureMonitor = Depends(get_feature_monitor),
+) -> StandardResponse[None]:
+    """Acknowledge a feature alert."""
+    try:
+        success = await monitor.acknowledge_alert(alert_id, acknowledged_by)
+        if not success:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Alert {alert_id} not found",
+            )
+
+        return StandardResponse[None](
+            success=True,
+            message="Alert acknowledged successfully",
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to acknowledge alert: {str(e)}",
+        )
+
+
+# Lineage Endpoints
+@router.get(
+    "/lineage/{node_name}",
+    response_model=StandardResponse[LineageGraph],
+    summary="Get feature lineage",
+    description="Get lineage graph for a feature or other node.",
+)
+async def get_feature_lineage(
+    node_name: str,
+    depth: int = Query(3, ge=1, le=10, description="Graph traversal depth"),
+    direction: str = Query(
+        "both", regex="^(upstream|downstream|both)$", description="Lineage direction"
+    ),
+    tracker: LineageTracker = Depends(get_lineage_tracker),
+) -> StandardResponse[LineageGraph]:
+    """Get feature lineage graph."""
+    try:
+        lineage_graph = await tracker.get_lineage_graph(
+            node_name, depth=depth, direction=direction
+        )
+
+        return StandardResponse[LineageGraph](
+            success=True,
+            data=lineage_graph,
+            message="Lineage graph retrieved successfully",
+        )
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e),
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to get lineage: {str(e)}",
+        )
+
+
+@router.get(
+    "/lineage/{node_name}/impact",
+    response_model=StandardResponse[ImpactAnalysisResult],
+    summary="Analyze impact",
+    description="Analyze impact of changes to a feature or node.",
+)
+async def analyze_feature_impact(
+    node_name: str,
+    change_type: str = Query("modification", description="Type of change"),
+    tracker: LineageTracker = Depends(get_lineage_tracker),
+) -> StandardResponse[ImpactAnalysisResult]:
+    """Analyze impact of changes to a feature."""
+    try:
+        impact_result = await tracker.analyze_impact(node_name, change_type)
+
+        return StandardResponse[ImpactAnalysisResult](
+            success=True,
+            data=impact_result,
+            message="Impact analysis completed successfully",
+        )
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e),
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to analyze impact: {str(e)}",
+        )
+
+
+@router.get(
+    "/lineage/{feature_name}/dependencies",
+    response_model=StandardResponse[list[str]],
+    summary="Get feature dependencies",
+    description="Get direct dependencies for a feature.",
+)
+async def get_feature_dependencies(
+    feature_name: str,
+    tracker: LineageTracker = Depends(get_lineage_tracker),
+) -> StandardResponse[list[str]]:
+    """Get feature dependencies."""
+    try:
+        dependencies = await tracker.get_feature_dependencies(feature_name)
+
+        return StandardResponse[list[str]](
+            success=True,
+            data=dependencies,
+            message=f"Found {len(dependencies)} dependencies",
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to get dependencies: {str(e)}",
+        )
+
+
+@router.get(
+    "/lineage/{feature_name}/consumers",
+    response_model=StandardResponse[list[str]],
+    summary="Get feature consumers",
+    description="Get direct consumers of a feature.",
+)
+async def get_feature_consumers(
+    feature_name: str,
+    tracker: LineageTracker = Depends(get_lineage_tracker),
+) -> StandardResponse[list[str]]:
+    """Get feature consumers."""
+    try:
+        consumers = await tracker.get_feature_consumers(feature_name)
+
+        return StandardResponse[list[str]](
+            success=True,
+            data=consumers,
+            message=f"Found {len(consumers)} consumers",
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to get consumers: {str(e)}",
         )
 
 
