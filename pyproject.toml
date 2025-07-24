@@ -44,11 +44,18 @@ dependencies = [
     "scipy>=1.11.0",
     "statsmodels>=0.14.0",
     "pymc>=5.10.0",
+    # Streaming and real-time analytics
+    "aiokafka>=0.10.0",
+    "websockets>=12.0.0",
+    "asyncio>=3.4.3",
+    "confluent-kafka>=2.5.0",
+    "avro>=1.11.3",
     # Data warehouse connectors
     "snowflake-connector-python>=3.16.0",
     "google-cloud-bigquery>=3.25.0",
     "redshift-connector>=2.1.0",
     "pyarrow>=17.0.0",
+    "mlflow>=3.1.4",
 ]
 
 [project.optional-dependencies]
