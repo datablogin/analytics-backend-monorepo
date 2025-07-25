@@ -1,193 +1,255 @@
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
 # Analytics Backend Monorepo
 
-## Bash Commands
+## Essential Commands
 
-### Development
+### Development Workflow
 - `make dev-install`: Install all dependencies including dev tools
-- `make install`: Install production dependencies only
-- `make test`: Run the test suite
+- `make test`: Run the complete test suite
 - `make lint`: Run ruff linter
-- `make format`: Format code with ruff
+- `make format`: Format code with ruff  
 - `make type-check`: Run mypy type checking
+- `make ci`: Run full CI pipeline locally (lint + format + type-check + test)
 - `make clean`: Clean build artifacts
 
-### Services
-- `make run-api`: Start the analytics API service
+### Running Services
+- `make run-api`: Start analytics API service at http://localhost:8000
 - `cd services/analytics_api && uvicorn main:app --reload`: Run API with hot reload
+- `cd docker && docker-compose up -d`: Start all services with Docker
 
-### Database Migrations
+### Testing Patterns
+- `pytest`: Run all tests
+- `pytest -k test_streaming`: Run streaming analytics tests only
+- `pytest tests/libs/test_data_processing.py`: Run specific test file
+- `pytest --cov=libs --cov=services`: Run with coverage reporting
+- `python -m libs.data_processing.data_quality_simple`: Test data quality framework
+
+### Database Operations  
 - `make migrate-create MESSAGE='description'`: Create new migration
 - `make migrate-upgrade`: Apply pending migrations
 - `make migrate-downgrade`: Rollback last migration
-- `make migrate-history`: Show migration history
-- `make migrate-current`: Show current migration
 
 ### Package Management
 - `uv sync`: Install dependencies from lock file
 - `uv add <package>`: Add new dependency
 - `uv remove <package>`: Remove dependency
 
-### Data Quality Commands
-- `make test -k test_data_quality`: Run data quality framework tests
-- `python -m libs.data_processing.data_quality_simple`: Test validation framework
-- `python -c "from libs.data_processing import DataProfiler; print('Profiler ready')"`: Test profiler
-- `python -c "from libs.data_processing import DataLineageTracker; print('Lineage ready')"`: Test lineage tracker
+## Architecture Overview
 
-### Issue Management Commands
-- `gh issue list --state open`: List all open issues
-- `gh issue list --label "needs-triage"`: List issues needing triage
-- `gh issue create --template bug_report.yml`: Create bug report
-- `gh issue create --template feature_request.yml`: Create feature request
-- `gh issue create --template enhancement.yml`: Create enhancement request
-- `/groom-backlog`: Run backlog grooming process
+This is a **Python monorepo** with a **shared libraries + microservices** architecture:
 
-## Project Structure
+### Core Design Principles
+- **Shared Libraries First**: Common functionality lives in `libs/` and is imported by services
+- **Independent Services**: Each service in `services/` has its own `pyproject.toml` and can be deployed independently  
+- **Type Safety**: Strict mypy typing with Pydantic for data validation
+- **Async-First**: All I/O operations use async/await patterns
+- **Structured Logging**: Using structlog for consistent, contextual logging
 
+### Library Architecture (`libs/`)
+
+**Core Libraries:**
+- `analytics_core/`: Database models, authentication, core utilities
+- `api_common/`: FastAPI middleware, response models, versioning, documentation
+- `config/`: Pydantic Settings-based configuration management
+- `observability/`: OpenTelemetry instrumentation, metrics, tracing, logging
+
+**Data & ML Libraries:**
+- `data_processing/`: ETL, data quality framework, profiling, lineage tracking
+- `ml_models/`: MLflow integration, model registry, serving, experiment tracking
+- `data_warehouse/`: Multi-cloud data warehouse connectors (BigQuery, Snowflake, Redshift)
+- `workflow_orchestration/`: DAG execution engine, scheduling, retry mechanisms
+
+**Real-time Processing:**
+- `streaming_analytics/`: Complete streaming platform with Kafka, WebSockets, real-time ML
+
+### Service Architecture (`services/`)
+
+**Production Services:**
+- `analytics_api/`: Main REST API with comprehensive middleware stack
+- `data_ingestion/`: Data pipeline service with quality checkpoints
+- `ml_inference/`: ML prediction service
+- `batch_processor/`: Background job processing with Celery
+- `feature_store/`: ML feature store with lineage and monitoring
+
+**Incomplete Services:**
+- `reporting_engine/`: Report generation (has pyproject.toml only - see Issue #46)
+
+### Critical Architecture Patterns
+
+**Service Bootstrapping Pattern:**
+All services follow the same initialization pattern:
+```python
+@asynccontextmanager
+async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
+    # Initialize database, observability, etc.
+    yield
+    # Cleanup
+
+app = FastAPI(lifespan=lifespan)
 ```
-/
-├── libs/                          # Shared libraries
-│   ├── analytics_core/            # Core analytics utilities
-│   ├── data_processing/           # ETL, data transformation & quality
-│   ├── ml_models/                # ML model utilities
-│   ├── api_common/               # Shared API components
-│   └── config/                   # Configuration management
-├── services/                     # Backend microservices
-│   ├── analytics_api/            # Analytics REST API
-│   ├── data_ingestion/           # Data pipeline service
-│   ├── ml_inference/             # ML prediction service
-│   ├── reporting_engine/         # Report generation
-│   └── batch_processor/          # Background job processing
-├── tools/                        # CLI tools and scripts
-├── tests/                        # Integration tests
-├── docker/                       # Service containers
-├── notebooks/                    # Data exploration
-└── docs/                         # API documentation
+
+**Shared Library Import Pattern:**
+Services import shared libraries as local packages:
+```python
+from libs.analytics_core.auth import get_current_user
+from libs.api_common.middleware import RequestLoggingMiddleware
+from libs.observability import ObservabilityMiddleware
 ```
 
-## Code Style
+**Configuration Management Pattern:**
+All configuration uses Pydantic Settings with environment variable overrides:
+```python
+from libs.config.database import get_database_settings
+settings = get_database_settings()
+```
 
-- Use Python 3.11+ features
-- Follow ruff formatting (88 char line length)
-- Add type hints to all functions
-- Use Pydantic for data validation
-- Use structured logging with structlog
-- Follow async/await patterns for I/O operations
+**Database Session Pattern:**
+Async database sessions are managed via dependency injection:
+```python
+from libs.analytics_core.database import get_db_session
+async def endpoint(db: AsyncSession = Depends(get_db_session)):
+```
 
-## Development Workflow
+## Streaming Analytics Infrastructure
 
-1. **Setup**: Run `make dev-install` to install all dependencies
-2. **Development**: 
-   - Make changes to code
-   - Run `make format` to format code
-   - Run `make lint` to check for issues
-   - Run `make type-check` to verify types
-3. **Testing**: Run `make test` before committing
-4. **Services**: Use `make run-api` to test the API locally
+The `libs/streaming_analytics/` library provides a production-ready streaming platform:
 
-## Architecture Patterns
+**Core Components:**
+- `KafkaManager`: Async Kafka producer/consumer with topic management
+- `StreamProcessor`/`WindowedProcessor`: Stream processing with windowing (tumbling, sliding, session)
+- `RealtimeMLPipeline`: Real-time ML inference with model caching
+- `WebSocketServer`: Live dashboard updates with authentication
+- `StreamingMetrics`: Monitoring, alerting, and auto-scaling
 
-- **Shared Libraries**: Common functionality in `libs/`
-- **Microservices**: Independent services in `services/`
-- **Dependency Management**: Each service has its own `pyproject.toml`
-- **Configuration**: Use Pydantic Settings for environment config
-- **Logging**: Structured logging with contextual information
-- **Error Handling**: Consistent error responses across services
+**Performance Targets:**
+- < 100ms end-to-end latency
+- 100,000+ events/sec throughput
+- < 50ms ML inference latency
+- 99.9% uptime with auto-scaling
 
-## Repository Etiquette
-
-- Each service is independently deployable
-- Shared libraries are imported as local packages
-- Use feature branches for development
-- All code must pass linting, type checking, and tests
-- Document API changes in service-specific docs
-
-## Issue Management Workflow
-
-### Creating Issues
-- Use GitHub issue templates for consistency:
-  - 🐛 **Bug Report**: For bugs and unexpected behavior
-  - ✨ **Feature Request**: For new functionality
-  - 🚀 **Enhancement**: For improving existing features
-- Include all required information in templates
-- Apply appropriate labels (service, priority, type)
-- Reference related issues and PRs
-
-### Pull Request Process
-- Use the PR template for all submissions
-- **REQUIRED**: Always include issue linking syntax in PR description: `Closes #123` or `Fixes #123`
-- Include comprehensive test coverage
-- Ensure all CI/CD checks pass
-- Request review from appropriate team members
-- **IMPORTANT**: Always include the Issue Number in the title of the PR you create and push to github
-
-### GitHub Issue Linking Rules
-**CRITICAL**: Every PR must include proper GitHub linking syntax to automatically close related issues:
-- Use `Closes #123` for feature implementations
-- Use `Fixes #123` for bug fixes  
-- Use `Resolves #123` for general issue resolution
-- Place the linking text in the PR description (not just commit messages)
-- Multiple issues can be referenced: `Closes #123, Fixes #456`
-
-### Backlog Grooming
-- Regular backlog review using `/groom-backlog` command
-- Weekly review of `needs-triage` issues
-- Monthly deep-dive on all open issues
-- Close obsolete or completed issues promptly
-- Maintain clear priority labels and descriptions
-
-### Issue Labels
-- **Type**: `bug`, `feature`, `enhancement`, `documentation`
-- **Priority**: `priority/critical`, `priority/high`, `priority/medium`, `priority/low`
-- **Service**: `analytics-api`, `data-ingestion`, `ml-inference`, etc.
-- **Status**: `needs-triage`, `ready-for-development`, `in-progress`, `blocked`
-- **Effort**: `effort/small`, `effort/medium`, `effort/large`, `effort/xl`
-
-## Environment Setup
-
-- Python 3.11+ required
-- Use `uv` for fast package management
-- Set up virtual environment with `uv venv`
-- Install pre-commit hooks for code quality
-
-## Testing
-
-- Unit tests for individual functions
-- Integration tests for service interactions
-- Use pytest with async support
-- Test coverage should be >80%
-- Mock external dependencies in tests
+**Integration Pattern:**
+```python
+from libs.streaming_analytics import (
+    StreamingConfig, KafkaManager, StreamProcessor, 
+    WindowType, AggregationType, RealtimeMLPipeline
+)
+```
 
 ## Data Quality Framework
 
-The platform includes a comprehensive data quality framework with the following capabilities:
+The `libs/data_processing/` library includes a comprehensive data quality system:
 
-### Core Features
-- **Data Validation**: Automated quality checks using configurable expectations
-- **Data Profiling**: Statistical analysis and quality assessment  
-- **Lineage Tracking**: Complete data asset and transformation tracking
-- **Quality Monitoring**: Real-time dashboards and KPI tracking via API endpoints
-- **Alerting System**: Multi-channel alerts for quality violations
+**Key Components:**
+- `data_quality_simple.py`: Main validation framework with configurable expectations
+- `profiling.py`: Statistical analysis and quality assessment
+- `lineage.py`: Data asset and transformation tracking
+- `alerting.py`: Multi-channel quality violation alerts
 
-### Key Components
-- `libs/data_processing/data_quality_simple.py`: Main validation framework
-- `libs/data_processing/profiling.py`: Data profiling and statistics
-- `libs/data_processing/lineage.py`: Data lineage tracking system
-- `libs/data_processing/alerting.py`: Quality violation alerting
-- `services/analytics_api/routes/data_quality.py`: Monitoring API endpoints
-- `services/data_ingestion/main.py`: Integrated quality checkpoints
+**Quality KPIs:**
+- Validation Success Rate: Target 99.5% for production datasets
+- Lineage Coverage: 100% coverage for production data assets
+- Detection Time: <15 minutes for quality violations
 
-### Quality KPIs
-- **Validation Success Rate**: Target 99.5% for production datasets
-- **Lineage Coverage**: 100% coverage for production data assets
-- **Detection Time**: <15 minutes for quality violations
-- **Data Quality Score**: Overall quality percentage across all datasets
+**API Integration:**
+Quality metrics are exposed via `services/analytics_api/routes/data_quality.py`
 
-### API Endpoints
-- `GET /data-quality/metrics`: Overall quality metrics and KPIs
-- `GET /data-quality/validations`: Recent validation results
-- `GET /data-quality/profiles`: Data profiling results
-- `GET /data-quality/lineage/{asset_name}`: Asset lineage information
-- `GET /data-quality/alerts`: Quality violation alerts
+## Development Standards
 
-### Usage Documentation
-See `docs/data_quality_framework.md` for comprehensive setup and usage instructions.
+**Code Quality Requirements:**
+- Python 3.11+ features required
+- 88 character line length (ruff formatting)
+- Type hints on all functions (strict mypy)
+- Structured logging with contextual information
+- Async/await for all I/O operations
+- Test coverage >80%
+
+**Python Version Compatibility:**
+- Primary: Python 3.11+  
+- CI Testing: Python 3.10, 3.11, 3.12
+- Type checking requires tuple syntax: `isinstance(v, (int, float))` not `int | float` for Python 3.10 compatibility
+
+**Import Guidelines:**
+- Shared libraries: `from libs.{library}.{module} import {item}`
+- Services are independent and don't import from each other
+- External dependencies managed via `uv` with lock files
+- Each service has its own dependency isolation
+
+## Testing Architecture
+
+**Test Organization:**
+- `tests/libs/`: Unit tests for shared libraries
+- `tests/test_{feature}.py`: Integration tests for cross-cutting features
+- `services/{service}/tests/`: Service-specific tests
+- `tests/conftest.py`: Pytest fixtures for database, auth, etc.
+
+**Testing Patterns:**
+- Async test support with pytest-asyncio
+- Database fixtures with cleanup
+- Mock external dependencies (Kafka, ML models)
+- Comprehensive streaming analytics test suite (10+ tests)
+
+## Error Handling & Observability
+
+**Structured Logging:**
+All services use structlog with contextual information:
+```python
+logger.info("Event processed", event_id=event.id, duration_ms=processing_time)
+```
+
+**OpenTelemetry Integration:**
+Full observability stack via `libs/observability/`:
+- Distributed tracing with Jaeger
+- Metrics with Prometheus
+- Request instrumentation for FastAPI, SQLAlchemy, Redis
+
+**Error Response Standardization:**
+All APIs use `libs/api_common/response_models.py` for consistent error formats.
+
+## GitHub Workflow Integration
+
+**Issue Linking Requirements:**
+- Every PR must include `Closes #123` or `Fixes #123` in description
+- PR titles must include issue number: "Issue #123: Feature description"
+- Use GitHub CLI: `gh issue create`, `gh pr create`, `gh issue list`
+
+**CI/CD Pipeline:**
+- Multi-Python testing (3.10, 3.11, 3.12)
+- Ruff linting and formatting validation
+- MyPy type checking with excluded problematic files
+- Docker build verification
+- Security scanning
+
+## Key Architectural Dependencies
+
+**Critical Library Interdependencies:**
+- `analytics_core` → Foundation for all services (database, auth, models)
+- `api_common` → Required by all FastAPI services (middleware, responses)
+- `config` → Configuration management for all components
+- `observability` → Monitoring/tracing for all services
+- `streaming_analytics` → Integrates with `ml_models` for real-time inference
+
+**External System Integrations:**
+- **Kafka**: Event streaming (aiokafka, confluent-kafka)
+- **MLflow**: Model registry and experiment tracking  
+- **PostgreSQL**: Primary database with async sessions (asyncpg)
+- **Redis**: Caching and session storage
+- **Multiple Data Warehouses**: BigQuery, Snowflake, Redshift connectors
+
+**Performance-Critical Paths:**
+- Streaming pipeline: Kafka → Stream Processing → ML Inference → WebSocket delivery
+- Data quality: Ingestion → Validation → Profiling → Alerting
+- API requests: Middleware stack → Authentication → Business logic → Response standardization
+
+## Active Development Areas
+
+**Current Open Issues (recently created):**
+- Issue #46: Implement Reporting Engine Service
+- Issue #47: End-to-End Integration Testing for Streaming Analytics  
+- Issue #48: Complete Streaming Analytics Documentation
+- Issue #49: Production Deployment Configuration
+- Issue #50: Complete ML Model Store Integration
+- Issue #51: Security Hardening for Streaming Analytics
+- Issue #52: Performance Optimization and Benchmarking

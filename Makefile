@@ -1,11 +1,13 @@
-.PHONY: help install dev-install test lint format type-check clean run-api setup-hooks ci migrate-create migrate-upgrade migrate-downgrade migrate-history migrate-current
+.PHONY: help install dev-install test test-integration test-performance lint format type-check clean run-api setup-hooks ci migrate-create migrate-upgrade migrate-downgrade migrate-history migrate-current
 
 help:
 	@echo "Available commands:"
 	@echo "  install      - Install production dependencies"
 	@echo "  dev-install  - Install development dependencies"
 	@echo "  setup-hooks  - Install pre-commit hooks"
-	@echo "  test         - Run tests"
+	@echo "  test         - Run unit tests"
+	@echo "  test-integration - Run integration tests"
+	@echo "  test-performance - Run integration tests with performance tests"
 	@echo "  lint         - Run ruff linter"
 	@echo "  format       - Format code with ruff"
 	@echo "  type-check   - Run mypy type checking"
@@ -27,7 +29,15 @@ dev-install:
 	uv sync --extra dev --extra test --extra ml
 
 test:
-	pytest
+	pytest --ignore=tests/integration
+
+test-integration:
+	@echo "🧪 Running integration tests for streaming analytics..."
+	RUN_INTEGRATION_TESTS=1 ./scripts/run_integration_tests.sh
+
+test-performance:
+	@echo "🏃 Running integration tests with performance tests..."
+	RUN_INTEGRATION_TESTS=1 ./scripts/run_integration_tests.sh --performance
 
 lint:
 	ruff check .
