@@ -17,6 +17,7 @@ Base = declarative_base()
 
 class ReportType(str, Enum):
     """Types of reports that can be generated."""
+
     DATA_QUALITY = "data_quality"
     ANALYTICS_DASHBOARD = "analytics_dashboard"
     AB_TEST_RESULTS = "ab_test_results"
@@ -27,6 +28,7 @@ class ReportType(str, Enum):
 
 class ReportFormat(str, Enum):
     """Supported export formats."""
+
     PDF = "pdf"
     EXCEL = "excel"
     CSV = "csv"
@@ -36,6 +38,7 @@ class ReportFormat(str, Enum):
 
 class ReportStatus(str, Enum):
     """Report generation status."""
+
     PENDING = "pending"
     IN_PROGRESS = "in_progress"
     COMPLETED = "completed"
@@ -45,6 +48,7 @@ class ReportStatus(str, Enum):
 
 class ReportFrequency(str, Enum):
     """Scheduled report frequency."""
+
     ONCE = "once"
     DAILY = "daily"
     WEEKLY = "weekly"
@@ -55,6 +59,7 @@ class ReportFrequency(str, Enum):
 # SQLAlchemy Models
 class Report(Base):
     """Report database model."""
+
     __tablename__ = "reports"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -84,6 +89,7 @@ class Report(Base):
 
 class ReportExecution(Base):
     """Report execution history."""
+
     __tablename__ = "report_executions"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -107,6 +113,7 @@ class ReportExecution(Base):
 # Pydantic Models
 class ReportConfigBase(BaseModel):
     """Base report configuration."""
+
     title: str
     description: str | None = None
     date_range: dict[str, Any] | None = None
@@ -115,6 +122,7 @@ class ReportConfigBase(BaseModel):
 
 class DataQualityReportConfig(ReportConfigBase):
     """Data quality report configuration."""
+
     datasets: list[str]
     quality_checks: list[str]
     threshold_alerts: bool = True
@@ -122,6 +130,7 @@ class DataQualityReportConfig(ReportConfigBase):
 
 class AnalyticsDashboardConfig(ReportConfigBase):
     """Analytics dashboard configuration."""
+
     metrics: list[str]
     visualizations: list[str]
     time_granularity: str = "daily"
@@ -130,6 +139,7 @@ class AnalyticsDashboardConfig(ReportConfigBase):
 
 class ABTestReportConfig(ReportConfigBase):
     """A/B test results report configuration."""
+
     experiment_ids: list[str]
     metrics: list[str]
     confidence_level: float = 0.95
@@ -138,6 +148,7 @@ class ABTestReportConfig(ReportConfigBase):
 
 class MLModelPerformanceConfig(ReportConfigBase):
     """ML model performance report configuration."""
+
     model_names: list[str]
     performance_metrics: list[str]
     time_period: str = "30d"
@@ -146,6 +157,7 @@ class MLModelPerformanceConfig(ReportConfigBase):
 
 class StreamingMetricsConfig(ReportConfigBase):
     """Streaming metrics report configuration."""
+
     services: list[str]
     metrics: list[str]
     aggregation_level: str = "hourly"
@@ -154,6 +166,7 @@ class StreamingMetricsConfig(ReportConfigBase):
 
 class ReportCreateRequest(BaseModel):
     """Request to create a new report."""
+
     name: str
     description: str | None = None
     report_type: ReportType
@@ -165,6 +178,7 @@ class ReportCreateRequest(BaseModel):
 
 class ReportUpdateRequest(BaseModel):
     """Request to update an existing report."""
+
     name: str | None = None
     description: str | None = None
     config: dict[str, Any] | None = None
@@ -175,6 +189,7 @@ class ReportUpdateRequest(BaseModel):
 
 class ReportResponse(BaseModel):
     """Report response model."""
+
     id: str
     name: str
     description: str | None
@@ -197,12 +212,14 @@ class ReportResponse(BaseModel):
 
 class ReportExecutionRequest(BaseModel):
     """Request to execute a report."""
+
     format: ReportFormat = ReportFormat.PDF
     async_execution: bool = True
 
 
 class ReportExecutionResponse(BaseModel):
     """Report execution response."""
+
     id: str
     report_id: str
     status: ReportStatus
@@ -221,6 +238,7 @@ class ReportExecutionResponse(BaseModel):
 
 class DashboardConfig(BaseModel):
     """Dashboard configuration."""
+
     name: str
     description: str | None = None
     layout: dict[str, Any]
@@ -231,6 +249,7 @@ class DashboardConfig(BaseModel):
 
 class DashboardCreateRequest(BaseModel):
     """Request to create a dashboard."""
+
     name: str
     description: str | None = None
     layout: dict[str, Any]
@@ -241,6 +260,7 @@ class DashboardCreateRequest(BaseModel):
 
 class WidgetConfig(BaseModel):
     """Widget configuration for dashboards."""
+
     type: str  # chart, table, metric, etc.
     title: str
     data_source: str
@@ -252,6 +272,7 @@ class WidgetConfig(BaseModel):
 
 class ExportRequest(BaseModel):
     """Export request model."""
+
     format: ReportFormat
     data_source: str
     query: dict[str, Any] | None = None

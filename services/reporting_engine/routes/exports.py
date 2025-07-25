@@ -49,14 +49,12 @@ async def export_data(
         elif request.data_source == "data_quality":
             export_data = _get_data_quality_export_data(request.query, request.filters)
         else:
-            raise HTTPException(status_code=400, detail=f"Unknown data source: {request.data_source}")
+            raise HTTPException(
+                status_code=400, detail=f"Unknown data source: {request.data_source}"
+            )
 
         # Export to requested format
-        result = export_report(
-            export_data,
-            request.format.value,
-            request.filename
-        )
+        result = export_report(export_data, request.format.value, request.filename)
 
         processing_time = round((time.time() - start_time) * 1000, 2)
 
@@ -221,7 +219,12 @@ async def get_export_templates(
                 "data_source": "analytics_db",
                 "query": {
                     "tables": ["users", "sessions", "events"],
-                    "metrics": ["total_users", "active_users", "session_duration", "bounce_rate"],
+                    "metrics": [
+                        "total_users",
+                        "active_users",
+                        "session_duration",
+                        "bounce_rate",
+                    ],
                     "date_range": "30d",
                 },
                 "recommended_formats": ["pdf", "excel"],
@@ -232,7 +235,11 @@ async def get_export_templates(
                 "description": "Data quality metrics and violations summary",
                 "data_source": "data_quality",
                 "query": {
-                    "metrics": ["overall_score", "violations_count", "datasets_monitored"],
+                    "metrics": [
+                        "overall_score",
+                        "violations_count",
+                        "datasets_monitored",
+                    ],
                     "include_details": True,
                 },
                 "recommended_formats": ["pdf", "excel", "csv"],
@@ -277,7 +284,9 @@ async def get_export_templates(
         )
 
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to get templates: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Failed to get templates: {str(e)}"
+        )
 
 
 def _get_analytics_export_data(query: dict, filters: dict) -> dict[str, Any]:
@@ -288,14 +297,20 @@ def _get_analytics_export_data(query: dict, filters: dict) -> dict[str, Any]:
     # Generate mock data
     users_data = []
     for i in range(100):
-        users_data.append({
-            "user_id": f"user_{i:04d}",
-            "email": f"user{i}@example.com",
-            "signup_date": (datetime.now() - timedelta(days=random.randint(1, 365))).strftime("%Y-%m-%d"),
-            "total_sessions": random.randint(1, 50),
-            "total_events": random.randint(10, 500),
-            "last_active": (datetime.now() - timedelta(days=random.randint(0, 30))).strftime("%Y-%m-%d"),
-        })
+        users_data.append(
+            {
+                "user_id": f"user_{i:04d}",
+                "email": f"user{i}@example.com",
+                "signup_date": (
+                    datetime.now() - timedelta(days=random.randint(1, 365))
+                ).strftime("%Y-%m-%d"),
+                "total_sessions": random.randint(1, 50),
+                "total_events": random.randint(10, 500),
+                "last_active": (
+                    datetime.now() - timedelta(days=random.randint(0, 30))
+                ).strftime("%Y-%m-%d"),
+            }
+        )
 
     return {
         "title": "User Analytics Export",
@@ -317,22 +332,26 @@ def _get_streaming_export_data(query: dict, filters: dict) -> dict[str, Any]:
     metrics_data = []
     for i in range(24):  # 24 hours of data
         timestamp = datetime.now() - timedelta(hours=i)
-        metrics_data.append({
-            "timestamp": timestamp.strftime("%Y-%m-%d %H:%M:%S"),
-            "events_per_second": random.randint(1000, 5000),
-            "avg_latency_ms": round(random.uniform(10, 100), 2),
-            "error_rate": round(random.uniform(0.001, 0.01), 4),
-            "queue_depth": random.randint(0, 1000),
-            "cpu_usage": round(random.uniform(0.3, 0.9), 2),
-            "memory_usage": round(random.uniform(0.4, 0.8), 2),
-        })
+        metrics_data.append(
+            {
+                "timestamp": timestamp.strftime("%Y-%m-%d %H:%M:%S"),
+                "events_per_second": random.randint(1000, 5000),
+                "avg_latency_ms": round(random.uniform(10, 100), 2),
+                "error_rate": round(random.uniform(0.001, 0.01), 4),
+                "queue_depth": random.randint(0, 1000),
+                "cpu_usage": round(random.uniform(0.3, 0.9), 2),
+                "memory_usage": round(random.uniform(0.4, 0.8), 2),
+            }
+        )
 
     return {
         "title": "Streaming Performance Export",
         "summary": {
             "time_period": "Last 24 hours",
-            "avg_throughput": sum(m["events_per_second"] for m in metrics_data) / len(metrics_data),
-            "avg_latency": sum(m["avg_latency_ms"] for m in metrics_data) / len(metrics_data),
+            "avg_throughput": sum(m["events_per_second"] for m in metrics_data)
+            / len(metrics_data),
+            "avg_latency": sum(m["avg_latency_ms"] for m in metrics_data)
+            / len(metrics_data),
             "export_date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         },
         "results": metrics_data,
@@ -349,23 +368,29 @@ def _get_data_quality_export_data(query: dict, filters: dict) -> dict[str, Any]:
     quality_data = []
 
     for dataset in datasets:
-        quality_data.append({
-            "dataset": dataset,
-            "quality_score": round(random.uniform(0.8, 0.99), 3),
-            "total_records": random.randint(1000, 100000),
-            "null_violations": random.randint(0, 100),
-            "format_violations": random.randint(0, 50),
-            "range_violations": random.randint(0, 25),
-            "last_checked": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            "status": random.choice(["passed", "warning", "failed"]),
-        })
+        quality_data.append(
+            {
+                "dataset": dataset,
+                "quality_score": round(random.uniform(0.8, 0.99), 3),
+                "total_records": random.randint(1000, 100000),
+                "null_violations": random.randint(0, 100),
+                "format_violations": random.randint(0, 50),
+                "range_violations": random.randint(0, 25),
+                "last_checked": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                "status": random.choice(["passed", "warning", "failed"]),
+            }
+        )
 
     return {
         "title": "Data Quality Export",
         "summary": {
             "total_datasets": len(datasets),
-            "avg_quality_score": sum(d["quality_score"] for d in quality_data) / len(quality_data),
-            "total_violations": sum(d["null_violations"] + d["format_violations"] + d["range_violations"] for d in quality_data),
+            "avg_quality_score": sum(d["quality_score"] for d in quality_data)
+            / len(quality_data),
+            "total_violations": sum(
+                d["null_violations"] + d["format_violations"] + d["range_violations"]
+                for d in quality_data
+            ),
             "export_date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         },
         "results": quality_data,

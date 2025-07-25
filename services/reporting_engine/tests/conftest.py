@@ -16,6 +16,7 @@ def mock_database():
     mock_db.delete = Mock()
     return mock_db
 
+
 @pytest.fixture
 def sample_report_data():
     """Sample report data for testing."""

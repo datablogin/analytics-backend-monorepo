@@ -20,7 +20,9 @@ logger = structlog.get_logger(__name__)
 
 
 @celery_app.task(bind=True)
-def generate_report(self, report_id: str, report_config: dict[str, Any]) -> dict[str, Any]:
+def generate_report(
+    self, report_id: str, report_config: dict[str, Any]
+) -> dict[str, Any]:
     """Generate a report asynchronously."""
     try:
         logger.info("Starting report generation", report_id=report_id)
@@ -28,8 +30,7 @@ def generate_report(self, report_id: str, report_config: dict[str, Any]) -> dict
 
         # Update task status
         current_task.update_state(
-            state="IN_PROGRESS",
-            meta={"report_id": report_id, "progress": 0}
+            state="IN_PROGRESS", meta={"report_id": report_id, "progress": 0}
         )
 
         # Get report configuration
@@ -52,8 +53,7 @@ def generate_report(self, report_id: str, report_config: dict[str, Any]) -> dict
             report_data = _generate_custom_report(config, filters)
 
         current_task.update_state(
-            state="IN_PROGRESS",
-            meta={"report_id": report_id, "progress": 50}
+            state="IN_PROGRESS", meta={"report_id": report_id, "progress": 50}
         )
 
         processing_time = round((time.time() - start_time) * 1000, 2)
@@ -61,7 +61,7 @@ def generate_report(self, report_id: str, report_config: dict[str, Any]) -> dict
         logger.info(
             "Report generation completed",
             report_id=report_id,
-            processing_time_ms=processing_time
+            processing_time_ms=processing_time,
         )
 
         return {
@@ -75,18 +75,14 @@ def generate_report(self, report_id: str, report_config: dict[str, Any]) -> dict
     except Exception as e:
         logger.error("Report generation failed", report_id=report_id, error=str(e))
         current_task.update_state(
-            state="FAILURE",
-            meta={"report_id": report_id, "error": str(e)}
+            state="FAILURE", meta={"report_id": report_id, "error": str(e)}
         )
         raise
 
 
 @celery_app.task(bind=True)
 def export_report(
-    self,
-    report_data: dict[str, Any],
-    format: str,
-    filename: str
+    self, report_data: dict[str, Any], format: str, filename: str
 ) -> dict[str, Any]:
     """Export report to specified format."""
     try:
@@ -94,8 +90,7 @@ def export_report(
         start_time = time.time()
 
         current_task.update_state(
-            state="IN_PROGRESS",
-            meta={"format": format, "progress": 0}
+            state="IN_PROGRESS", meta={"format": format, "progress": 0}
         )
 
         # Create exports directory if it doesn't exist
@@ -124,7 +119,7 @@ def export_report(
             "Report export completed",
             file_path=file_path,
             file_size_bytes=file_size,
-            processing_time_ms=processing_time
+            processing_time_ms=processing_time,
         )
 
         return {
@@ -138,8 +133,7 @@ def export_report(
     except Exception as e:
         logger.error("Report export failed", format=format, error=str(e))
         current_task.update_state(
-            state="FAILURE",
-            meta={"format": format, "error": str(e)}
+            state="FAILURE", meta={"format": format, "error": str(e)}
         )
         raise
 
@@ -251,7 +245,9 @@ def _generate_ab_test_report(config: dict, filters: dict) -> dict[str, Any]:
         "title": config.get("title", "A/B Test Results"),
         "summary": {
             "total_experiments": len(experiment_ids),
-            "significant_results": len([r for r in results if r["statistical_significance"]]),
+            "significant_results": len(
+                [r for r in results if r["statistical_significance"]]
+            ),
         },
         "results": results,
         "generated_at": datetime.utcnow().isoformat(),
@@ -317,9 +313,9 @@ def _generate_streaming_metrics_report(config: dict, filters: dict) -> dict[str,
     for service in services:
         service_metrics = {
             "throughput": 15420,  # events/sec
-            "latency_p95": 45,   # milliseconds
+            "latency_p95": 45,  # milliseconds
             "error_rate": 0.001,  # 0.1%
-            "uptime": 99.95,     # percentage
+            "uptime": 99.95,  # percentage
             "queue_depth": 125,
             "consumer_lag": 0.5,  # seconds
         }
@@ -345,18 +341,22 @@ def _generate_mock_chart_data(chart_type: str) -> dict[str, Any]:
     if chart_type == "line":
         return {
             "labels": ["Jan", "Feb", "Mar", "Apr", "May", "Jun"],
-            "datasets": [{
-                "label": "Users",
-                "data": [1200, 1350, 1180, 1420, 1650, 1480],
-            }]
+            "datasets": [
+                {
+                    "label": "Users",
+                    "data": [1200, 1350, 1180, 1420, 1650, 1480],
+                }
+            ],
         }
     elif chart_type == "bar":
         return {
             "labels": ["Desktop", "Mobile", "Tablet"],
-            "datasets": [{
-                "label": "Sessions",
-                "data": [3200, 2800, 450],
-            }]
+            "datasets": [
+                {
+                    "label": "Sessions",
+                    "data": [3200, 2800, 450],
+                }
+            ],
         }
     else:
         return {"message": f"Mock data for {chart_type}"}
@@ -364,8 +364,8 @@ def _generate_mock_chart_data(chart_type: str) -> dict[str, Any]:
 
 def _export_to_pdf(report_data: dict, file_path: str) -> str:
     """Export report to PDF format."""
-    if not file_path.endswith('.pdf'):
-        file_path += '.pdf'
+    if not file_path.endswith(".pdf"):
+        file_path += ".pdf"
 
     doc = SimpleDocTemplate(file_path, pagesize=letter)
     styles = getSampleStyleSheet()
@@ -373,8 +373,8 @@ def _export_to_pdf(report_data: dict, file_path: str) -> str:
 
     # Title
     title_style = ParagraphStyle(
-        'CustomTitle',
-        parent=styles['Heading1'],
+        "CustomTitle",
+        parent=styles["Heading1"],
         fontSize=24,
         spaceAfter=30,
         alignment=1,  # Center alignment
@@ -384,14 +384,18 @@ def _export_to_pdf(report_data: dict, file_path: str) -> str:
 
     # Summary section
     if "summary" in report_data:
-        story.append(Paragraph("Summary", styles['Heading2']))
+        story.append(Paragraph("Summary", styles["Heading2"]))
         for key, value in report_data["summary"].items():
-            story.append(Paragraph(f"<b>{key.replace('_', ' ').title()}:</b> {value}", styles['Normal']))
+            story.append(
+                Paragraph(
+                    f"<b>{key.replace('_', ' ').title()}:</b> {value}", styles["Normal"]
+                )
+            )
         story.append(Spacer(1, 12))
 
     # Results section
     if "results" in report_data:
-        story.append(Paragraph("Results", styles['Heading2']))
+        story.append(Paragraph("Results", styles["Heading2"]))
 
         # Create table for results if it's a list
         if isinstance(report_data["results"], list) and report_data["results"]:
@@ -405,22 +409,31 @@ def _export_to_pdf(report_data: dict, file_path: str) -> str:
                     data.append(row)
 
                 table = Table(data)
-                table.setStyle(TableStyle([
-                    ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
-                    ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
-                    ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
-                    ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-                    ('FONTSIZE', (0, 0), (-1, 0), 14),
-                    ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
-                    ('BACKGROUND', (0, 1), (-1, -1), colors.beige),
-                    ('GRID', (0, 0), (-1, -1), 1, colors.black)
-                ]))
+                table.setStyle(
+                    TableStyle(
+                        [
+                            ("BACKGROUND", (0, 0), (-1, 0), colors.grey),
+                            ("TEXTCOLOR", (0, 0), (-1, 0), colors.whitesmoke),
+                            ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+                            ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+                            ("FONTSIZE", (0, 0), (-1, 0), 14),
+                            ("BOTTOMPADDING", (0, 0), (-1, 0), 12),
+                            ("BACKGROUND", (0, 1), (-1, -1), colors.beige),
+                            ("GRID", (0, 0), (-1, -1), 1, colors.black),
+                        ]
+                    )
+                )
                 story.append(table)
 
     # Metadata
     story.append(Spacer(1, 20))
-    story.append(Paragraph("Report Information", styles['Heading3']))
-    story.append(Paragraph(f"Generated at: {report_data.get('generated_at', 'Unknown')}", styles['Normal']))
+    story.append(Paragraph("Report Information", styles["Heading3"]))
+    story.append(
+        Paragraph(
+            f"Generated at: {report_data.get('generated_at', 'Unknown')}",
+            styles["Normal"],
+        )
+    )
 
     doc.build(story)
     return file_path
@@ -428,35 +441,34 @@ def _export_to_pdf(report_data: dict, file_path: str) -> str:
 
 def _export_to_excel(report_data: dict, file_path: str) -> str:
     """Export report to Excel format."""
-    if not file_path.endswith(('.xlsx', '.xls')):
-        file_path += '.xlsx'
+    if not file_path.endswith((".xlsx", ".xls")):
+        file_path += ".xlsx"
 
-    with pd.ExcelWriter(file_path, engine='openpyxl') as writer:
+    with pd.ExcelWriter(file_path, engine="openpyxl") as writer:
         # Summary sheet
         if "summary" in report_data:
             summary_df = pd.DataFrame(
-                list(report_data["summary"].items()),
-                columns=['Metric', 'Value']
+                list(report_data["summary"].items()), columns=["Metric", "Value"]
             )
-            summary_df.to_excel(writer, sheet_name='Summary', index=False)
+            summary_df.to_excel(writer, sheet_name="Summary", index=False)
 
         # Results sheet
         if "results" in report_data:
             results = report_data["results"]
             if isinstance(results, list) and results:
                 results_df = pd.DataFrame(results)
-                results_df.to_excel(writer, sheet_name='Results', index=False)
+                results_df.to_excel(writer, sheet_name="Results", index=False)
             elif isinstance(results, dict):
                 results_df = pd.DataFrame([results])
-                results_df.to_excel(writer, sheet_name='Results', index=False)
+                results_df.to_excel(writer, sheet_name="Results", index=False)
 
     return file_path
 
 
 def _export_to_csv(report_data: dict, file_path: str) -> str:
     """Export report to CSV format."""
-    if not file_path.endswith('.csv'):
-        file_path += '.csv'
+    if not file_path.endswith(".csv"):
+        file_path += ".csv"
 
     # Export results if available
     if "results" in report_data:
@@ -479,10 +491,10 @@ def _export_to_json(report_data: dict, file_path: str) -> str:
     """Export report to JSON format."""
     import json
 
-    if not file_path.endswith('.json'):
-        file_path += '.json'
+    if not file_path.endswith(".json"):
+        file_path += ".json"
 
-    with open(file_path, 'w') as f:
+    with open(file_path, "w") as f:
         json.dump(report_data, f, indent=2, default=str)
 
     return file_path
@@ -490,14 +502,14 @@ def _export_to_json(report_data: dict, file_path: str) -> str:
 
 def _export_to_html(report_data: dict, file_path: str) -> str:
     """Export report to HTML format."""
-    if not file_path.endswith('.html'):
-        file_path += '.html'
+    if not file_path.endswith(".html"):
+        file_path += ".html"
 
     html_content = f"""
     <!DOCTYPE html>
     <html>
     <head>
-        <title>{report_data.get('title', 'Report')}</title>
+        <title>{report_data.get("title", "Report")}</title>
         <style>
             body {{ font-family: Arial, sans-serif; margin: 40px; }}
             h1 {{ color: #333; }}
@@ -509,7 +521,7 @@ def _export_to_html(report_data: dict, file_path: str) -> str:
         </style>
     </head>
     <body>
-        <h1>{report_data.get('title', 'Report')}</h1>
+        <h1>{report_data.get("title", "Report")}</h1>
 
         <div class="summary">
             <h2>Summary</h2>
@@ -518,7 +530,9 @@ def _export_to_html(report_data: dict, file_path: str) -> str:
 
     if "summary" in report_data:
         for key, value in report_data["summary"].items():
-            html_content += f"<li><strong>{key.replace('_', ' ').title()}:</strong> {value}</li>"
+            html_content += (
+                f"<li><strong>{key.replace('_', ' ').title()}:</strong> {value}</li>"
+            )
 
     html_content += """
             </ul>
@@ -549,12 +563,12 @@ def _export_to_html(report_data: dict, file_path: str) -> str:
             html_content += "</table>"
 
     html_content += f"""
-        <p><small>Generated at: {report_data.get('generated_at', 'Unknown')}</small></p>
+        <p><small>Generated at: {report_data.get("generated_at", "Unknown")}</small></p>
     </body>
     </html>
     """
 
-    with open(file_path, 'w') as f:
+    with open(file_path, "w") as f:
         f.write(html_content)
 
     return file_path

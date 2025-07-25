@@ -18,6 +18,7 @@ from ..models import (
 
 router = APIRouter()
 
+
 # WebSocket connection manager for real-time updates
 class ConnectionManager:
     """Manage WebSocket connections for real-time dashboard updates."""
@@ -114,7 +115,9 @@ async def create_dashboard(
         )
 
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to create dashboard: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Failed to create dashboard: {str(e)}"
+        )
 
 
 @router.get(
@@ -176,7 +179,11 @@ async def get_dashboard_templates(
                         "type": "metric",
                         "title": "Revenue",
                         "data_source": "analytics_db",
-                        "query": {"table": "transactions", "metric": "sum", "field": "amount"},
+                        "query": {
+                            "table": "transactions",
+                            "metric": "sum",
+                            "field": "amount",
+                        },
                         "visualization": {"format": "currency", "color": "purple"},
                         "size": {"width": 3, "height": 2},
                         "position": {"x": 9, "y": 0},
@@ -186,8 +193,16 @@ async def get_dashboard_templates(
                         "type": "chart",
                         "title": "User Growth",
                         "data_source": "analytics_db",
-                        "query": {"table": "users", "metric": "count", "group_by": "date"},
-                        "visualization": {"type": "line", "x_axis": "date", "y_axis": "count"},
+                        "query": {
+                            "table": "users",
+                            "metric": "count",
+                            "group_by": "date",
+                        },
+                        "visualization": {
+                            "type": "line",
+                            "x_axis": "date",
+                            "y_axis": "count",
+                        },
                         "size": {"width": 6, "height": 4},
                         "position": {"x": 0, "y": 2},
                     },
@@ -196,8 +211,16 @@ async def get_dashboard_templates(
                         "type": "chart",
                         "title": "Traffic Sources",
                         "data_source": "analytics_db",
-                        "query": {"table": "sessions", "metric": "count", "group_by": "source"},
-                        "visualization": {"type": "pie", "value": "count", "label": "source"},
+                        "query": {
+                            "table": "sessions",
+                            "metric": "count",
+                            "group_by": "source",
+                        },
+                        "visualization": {
+                            "type": "pie",
+                            "value": "count",
+                            "label": "source",
+                        },
                         "size": {"width": 6, "height": 4},
                         "position": {"x": 6, "y": 2},
                     },
@@ -250,7 +273,11 @@ async def get_dashboard_templates(
                         "title": "Quality Score Trends",
                         "data_source": "data_quality",
                         "query": {"metric": "quality_score", "group_by": "date"},
-                        "visualization": {"type": "line", "x_axis": "date", "y_axis": "score"},
+                        "visualization": {
+                            "type": "line",
+                            "x_axis": "date",
+                            "y_axis": "score",
+                        },
                         "size": {"width": 12, "height": 4},
                         "position": {"x": 0, "y": 2},
                     },
@@ -326,7 +353,9 @@ async def get_dashboard_templates(
         )
 
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to get templates: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Failed to get templates: {str(e)}"
+        )
 
 
 @router.get(
@@ -349,6 +378,7 @@ async def get_dashboard_data(
     try:
         # Parse filters if provided
         import json
+
         parsed_filters = json.loads(filters) if filters else {}
 
         # Mock data based on data source
@@ -374,7 +404,9 @@ async def get_dashboard_data(
         )
 
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to get dashboard data: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Failed to get dashboard data: {str(e)}"
+        )
 
 
 @router.websocket("/ws/{dashboard_id}")
@@ -388,7 +420,9 @@ async def websocket_endpoint(websocket: WebSocket, dashboard_id: str):
             data = await websocket.receive_text()
 
             # Process the message (e.g., subscribe to specific metrics)
-            await connection_manager.send_personal_message(f"Message received: {data}", websocket)
+            await connection_manager.send_personal_message(
+                f"Message received: {data}", websocket
+            )
 
     except WebSocketDisconnect:
         connection_manager.disconnect(websocket, dashboard_id)
@@ -411,12 +445,15 @@ async def broadcast_dashboard_update(
 
     try:
         import json
-        message = json.dumps({
-            "type": "data_update",
-            "dashboard_id": dashboard_id,
-            "data": data,
-            "timestamp": time.time(),
-        })
+
+        message = json.dumps(
+            {
+                "type": "data_update",
+                "dashboard_id": dashboard_id,
+                "data": data,
+                "timestamp": time.time(),
+            }
+        )
 
         await connection_manager.broadcast_to_dashboard(message, dashboard_id)
 
@@ -434,7 +471,9 @@ async def broadcast_dashboard_update(
         )
 
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to broadcast update: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Failed to broadcast update: {str(e)}"
+        )
 
 
 def _get_analytics_data(metric: str, filters: dict) -> dict[str, Any]:
@@ -450,7 +489,10 @@ def _get_analytics_data(metric: str, filters: dict) -> dict[str, Any]:
         return {"value": round(random.uniform(10000, 100000), 2)}
     else:
         # Time series data
-        dates = [(datetime.now() - timedelta(days=i)).strftime("%Y-%m-%d") for i in range(30, 0, -1)]
+        dates = [
+            (datetime.now() - timedelta(days=i)).strftime("%Y-%m-%d")
+            for i in range(30, 0, -1)
+        ]
         values = [random.randint(100, 1000) for _ in dates]
         return {
             "labels": dates,

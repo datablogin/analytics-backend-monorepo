@@ -42,6 +42,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
     # Initialize Celery if needed
     from .celery_app import init_celery
+
     init_celery()
 
     yield
@@ -115,6 +116,7 @@ async def health_check(
     # Test Celery connection
     try:
         from .celery_app import celery_app
+
         celery_inspect = celery_app.control.inspect()
         active_queues = celery_inspect.active_queues()
         celery_status = "healthy" if active_queues is not None else "unhealthy"
@@ -123,10 +125,11 @@ async def health_check(
 
     processing_time = round((time.time() - start_time) * 1000, 2)
 
-    overall_status = "healthy" if all([
-        db_status == "healthy",
-        celery_status == "healthy"
-    ]) else "unhealthy"
+    overall_status = (
+        "healthy"
+        if all([db_status == "healthy", celery_status == "healthy"])
+        else "unhealthy"
+    )
 
     health_data = HealthStatus(
         status=overall_status,

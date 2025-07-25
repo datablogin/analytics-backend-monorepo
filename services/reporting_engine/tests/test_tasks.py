@@ -73,7 +73,7 @@ def test_export_to_pdf():
 
         result_path = _export_to_pdf(report_data, file_path)
 
-        assert result_path.endswith('.pdf')
+        assert result_path.endswith(".pdf")
         assert os.path.exists(result_path)
         assert os.path.getsize(result_path) > 0
 
@@ -93,7 +93,7 @@ def test_export_to_csv():
 
         result_path = _export_to_csv(report_data, file_path)
 
-        assert result_path.endswith('.csv')
+        assert result_path.endswith(".csv")
         assert os.path.exists(result_path)
         assert os.path.getsize(result_path) > 0
 
@@ -118,12 +118,13 @@ def test_export_to_json():
 
         result_path = _export_to_json(report_data, file_path)
 
-        assert result_path.endswith('.json')
+        assert result_path.endswith(".json")
         assert os.path.exists(result_path)
         assert os.path.getsize(result_path) > 0
 
         # Check JSON content
         import json
+
         with open(result_path) as f:
             data = json.load(f)
             assert data["title"] == "Test Report"
@@ -131,7 +132,7 @@ def test_export_to_json():
             assert "results" in data
 
 
-@patch('services.reporting_engine.tasks.current_task')
+@patch("services.reporting_engine.tasks.current_task")
 def test_generate_report_task(mock_current_task):
     """Test the generate_report Celery task."""
     mock_current_task.update_state = Mock()
@@ -147,7 +148,9 @@ def test_generate_report_task(mock_current_task):
     }
 
     # Mock the task execution
-    with patch('services.reporting_engine.tasks._generate_data_quality_report') as mock_generate:
+    with patch(
+        "services.reporting_engine.tasks._generate_data_quality_report"
+    ) as mock_generate:
         mock_generate.return_value = {
             "title": "Test Report",
             "summary": {"total": 100},
@@ -165,7 +168,7 @@ def test_generate_report_task(mock_current_task):
         assert mock_current_task.update_state.called
 
 
-@patch('services.reporting_engine.tasks.current_task')
+@patch("services.reporting_engine.tasks.current_task")
 def test_export_report_task(mock_current_task):
     """Test the export_report Celery task."""
     mock_current_task.update_state = Mock()

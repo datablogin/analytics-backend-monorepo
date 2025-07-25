@@ -9,6 +9,7 @@ from libs.config.base import Environment, get_environment
 # Create Celery instance
 celery_app = Celery("reporting_engine")
 
+
 def init_celery():
     """Initialize Celery with configuration."""
     # Configuration based on environment
@@ -47,4 +48,4 @@ def init_celery():
 
 
 # Auto-discover tasks
-celery_app.autodiscover_tasks(['services.reporting_engine.tasks'])
+celery_app.autodiscover_tasks(["services.reporting_engine.tasks"])

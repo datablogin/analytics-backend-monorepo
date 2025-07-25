@@ -72,7 +72,9 @@ async def create_report(
 
     except Exception as e:
         await db.rollback()
-        raise HTTPException(status_code=500, detail=f"Failed to create report: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Failed to create report: {str(e)}"
+        )
 
 
 @router.get(
@@ -95,7 +97,9 @@ async def list_reports(
 
     try:
         # Build query
-        query = select(Report).where(Report.created_by == current_user.get("user_id", "unknown"))
+        query = select(Report).where(
+            Report.created_by == current_user.get("user_id", "unknown")
+        )
 
         if report_type:
             query = query.where(Report.report_type == report_type)
@@ -142,7 +146,7 @@ async def get_report(
     try:
         query = select(Report).where(
             Report.id == report_id,
-            Report.created_by == current_user.get("user_id", "unknown")
+            Report.created_by == current_user.get("user_id", "unknown"),
         )
         result = await db.execute(query)
         report = result.scalar_one_or_none()
@@ -187,7 +191,7 @@ async def update_report(
     try:
         query = select(Report).where(
             Report.id == report_id,
-            Report.created_by == current_user.get("user_id", "unknown")
+            Report.created_by == current_user.get("user_id", "unknown"),
         )
         result = await db.execute(query)
         report = result.scalar_one_or_none()
@@ -228,7 +232,9 @@ async def update_report(
         raise
     except Exception as e:
         await db.rollback()
-        raise HTTPException(status_code=500, detail=f"Failed to update report: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Failed to update report: {str(e)}"
+        )
 
 
 @router.delete(
@@ -249,7 +255,7 @@ async def delete_report(
     try:
         query = select(Report).where(
             Report.id == report_id,
-            Report.created_by == current_user.get("user_id", "unknown")
+            Report.created_by == current_user.get("user_id", "unknown"),
         )
         result = await db.execute(query)
         report = result.scalar_one_or_none()
@@ -277,7 +283,9 @@ async def delete_report(
         raise
     except Exception as e:
         await db.rollback()
-        raise HTTPException(status_code=500, detail=f"Failed to delete report: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Failed to delete report: {str(e)}"
+        )
 
 
 @router.post(
@@ -300,7 +308,7 @@ async def execute_report(
         # Get report
         query = select(Report).where(
             Report.id == report_id,
-            Report.created_by == current_user.get("user_id", "unknown")
+            Report.created_by == current_user.get("user_id", "unknown"),
         )
         result = await db.execute(query)
         report = result.scalar_one_or_none()
@@ -327,7 +335,7 @@ async def execute_report(
                     "report_type": report.report_type.value,
                     "config": report.config,
                     "filters": report.filters,
-                }
+                },
             )
 
             # Update execution with task ID
@@ -347,16 +355,14 @@ async def execute_report(
                         "report_type": report.report_type.value,
                         "config": report.config,
                         "filters": report.filters,
-                    }
+                    },
                 )
 
                 # Export if requested
                 if request.format:
                     filename = f"report_{report_id}_{int(time.time())}"
                     export_result = export_report(
-                        report_result["data"],
-                        request.format.value,
-                        filename
+                        report_result["data"], request.format.value, filename
                     )
 
                     execution.file_path = export_result["file_path"]
@@ -377,7 +383,9 @@ async def execute_report(
                 report.status = ReportStatus.FAILED
                 report.error_message = str(e)
                 await db.commit()
-                raise HTTPException(status_code=500, detail=f"Report execution failed: {str(e)}")
+                raise HTTPException(
+                    status_code=500, detail=f"Report execution failed: {str(e)}"
+                )
 
         processing_time = round((time.time() - start_time) * 1000, 2)
 
@@ -395,7 +403,9 @@ async def execute_report(
         raise
     except Exception as e:
         await db.rollback()
-        raise HTTPException(status_code=500, detail=f"Failed to execute report: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Failed to execute report: {str(e)}"
+        )
 
 
 @router.get(
@@ -419,7 +429,7 @@ async def list_report_executions(
         # Verify report ownership
         report_query = select(Report).where(
             Report.id == report_id,
-            Report.created_by == current_user.get("user_id", "unknown")
+            Report.created_by == current_user.get("user_id", "unknown"),
         )
         report_result = await db.execute(report_query)
         report = report_result.scalar_one_or_none()
@@ -428,9 +438,13 @@ async def list_report_executions(
             raise HTTPException(status_code=404, detail="Report not found")
 
         # Get executions
-        query = select(ReportExecution).where(
-            ReportExecution.report_id == report_id
-        ).offset(skip).limit(limit).order_by(ReportExecution.started_at.desc())
+        query = (
+            select(ReportExecution)
+            .where(ReportExecution.report_id == report_id)
+            .offset(skip)
+            .limit(limit)
+            .order_by(ReportExecution.started_at.desc())
+        )
 
         result = await db.execute(query)
         executions = result.scalars().all()
@@ -439,7 +453,10 @@ async def list_report_executions(
 
         return StandardResponse(
             success=True,
-            data=[ReportExecutionResponse.model_validate(execution) for execution in executions],
+            data=[
+                ReportExecutionResponse.model_validate(execution)
+                for execution in executions
+            ],
             metadata=APIMetadata(
                 version="v1",
                 timestamp=time.time(),
@@ -451,4 +468,6 @@ async def list_report_executions(
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to list executions: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Failed to list executions: {str(e)}"
+        )

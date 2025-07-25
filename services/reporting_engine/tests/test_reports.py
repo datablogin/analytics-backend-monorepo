@@ -59,11 +59,11 @@ def test_create_report(mock_db, mock_user, client, mock_current_user, mock_db_se
                 "report_type": "data_quality",
                 "config": {
                     "datasets": ["users", "orders"],
-                    "quality_checks": ["null_check", "format_check"]
+                    "quality_checks": ["null_check", "format_check"],
                 },
                 "filters": {},
-                "frequency": "once"
-            }
+                "frequency": "once",
+            },
         )
 
         assert response.status_code == 200
@@ -122,7 +122,9 @@ def test_get_report(mock_db, mock_user, client, mock_current_user, mock_db_sessi
 
 @patch("services.reporting_engine.main.get_current_user")
 @patch("services.reporting_engine.main.get_db_session")
-def test_execute_report_async(mock_db, mock_user, client, mock_current_user, mock_db_session):
+def test_execute_report_async(
+    mock_db, mock_user, client, mock_current_user, mock_db_session
+):
     """Test executing a report asynchronously."""
     mock_user.return_value = mock_current_user
     mock_db.return_value = mock_db_session
@@ -139,22 +141,23 @@ def test_execute_report_async(mock_db, mock_user, client, mock_current_user, moc
     mock_db_session.execute.return_value = mock_result
 
     # Mock execution creation
-    with patch("services.reporting_engine.routes.reports.ReportExecution") as mock_execution_class:
+    with patch(
+        "services.reporting_engine.routes.reports.ReportExecution"
+    ) as mock_execution_class:
         mock_execution = Mock()
         mock_execution.id = "test-execution-id"
         mock_execution.status = ReportStatus.PENDING
         mock_execution_class.return_value = mock_execution
 
         # Mock Celery task
-        with patch("services.reporting_engine.routes.reports.generate_report") as mock_task:
+        with patch(
+            "services.reporting_engine.routes.reports.generate_report"
+        ) as mock_task:
             mock_task.delay.return_value.id = "test-task-id"
 
             response = client.post(
                 "/api/v1/reports/test-report-id/execute",
-                json={
-                    "format": "pdf",
-                    "async_execution": True
-                }
+                json={"format": "pdf", "async_execution": True},
             )
 
             assert response.status_code == 200
