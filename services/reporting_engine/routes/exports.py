@@ -337,9 +337,9 @@ def _get_streaming_export_data(query: dict, filters: dict) -> dict[str, Any]:
         "title": "Streaming Performance Export",
         "summary": {
             "time_period": "Last 24 hours",
-            "avg_throughput": sum(m["events_per_second"] for m in metrics_data)
+            "avg_throughput": sum(int(m["events_per_second"]) for m in metrics_data)  # type: ignore[misc,arg-type,call-overload]
             / len(metrics_data),
-            "avg_latency": sum(m["avg_latency_ms"] for m in metrics_data)
+            "avg_latency": sum(float(m["avg_latency_ms"]) for m in metrics_data)  # type: ignore[misc,arg-type]
             / len(metrics_data),
             "export_date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         },
@@ -374,10 +374,12 @@ def _get_data_quality_export_data(query: dict, filters: dict) -> dict[str, Any]:
         "title": "Data Quality Export",
         "summary": {
             "total_datasets": len(datasets),
-            "avg_quality_score": sum(d["quality_score"] for d in quality_data)
+            "avg_quality_score": sum(float(d["quality_score"]) for d in quality_data)  # type: ignore[misc,arg-type]
             / len(quality_data),
             "total_violations": sum(
-                d["null_violations"] + d["format_violations"] + d["range_violations"]
+                int(d["null_violations"])
+                + int(d["format_violations"])
+                + int(d["range_violations"])  # type: ignore[misc,arg-type,call-overload]
                 for d in quality_data
             ),
             "export_date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),

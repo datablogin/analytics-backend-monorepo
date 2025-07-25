@@ -97,10 +97,10 @@ async def list_reports(
             Report.created_by == current_user.get("user_id", "unknown")
         )
 
-        if report_type:
-            query = query.where(Report.report_type == report_type)
-        if status:
-            query = query.where(Report.status == status)
+        if report_type is not None:
+            query = query.where(Report.report_type == report_type)  # type: ignore[arg-type]
+        if status is not None:
+            query = query.where(Report.status == status)  # type: ignore[arg-type]
 
         query = query.offset(skip).limit(limit).order_by(Report.created_at.desc())
 
