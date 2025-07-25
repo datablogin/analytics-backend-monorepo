@@ -44,11 +44,17 @@ dependencies = [
     "scipy>=1.11.0",
     "statsmodels>=0.14.0",
     "pymc>=5.10.0",
+    # Streaming and real-time analytics
+    "aiokafka>=0.10.0,<0.11.0",
+    "websockets>=12.0.0,<13.0.0",
+    "confluent-kafka>=2.5.0,<3.0.0",
+    "avro>=1.11.3,<2.0.0",
     # Data warehouse connectors
     "snowflake-connector-python>=3.16.0",
     "google-cloud-bigquery>=3.25.0",
     "redshift-connector>=2.1.0",
     "pyarrow>=17.0.0",
+    "mlflow>=3.1.4",
 ]
 
 [project.optional-dependencies]
@@ -97,7 +103,7 @@ line-length = 88
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "N", "W", "UP"]
-ignore = ["E501", "UP017", "N806"]
+ignore = ["E501", "UP017", "N806", "N805", "UP038"]
 
 [tool.ruff.format]
 quote-style = "double"
