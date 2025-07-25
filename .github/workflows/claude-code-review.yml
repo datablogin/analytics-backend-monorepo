@@ -2,7 +2,7 @@ name: Claude Code Review
 
 on:
   pull_request:
-    types: [opened, synchronize]
+    types: [opened] #[opened, synchronize]
     # Only run on Python file changes and important config files
     paths:
       - "libs/**/*.py"
