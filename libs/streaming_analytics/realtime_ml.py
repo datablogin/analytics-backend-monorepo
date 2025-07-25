@@ -531,7 +531,9 @@ class RealtimeMLInferenceEngine:
         """Load model from registry."""
         try:
             if model_version:
-                return self.model_registry.get_model_version(model_name, model_version)
+                return self.model_registry.client.get_model_version(
+                    model_name, model_version
+                )
             else:
                 return self.model_registry.get_latest_model_version(model_name)
         except Exception as e:
