@@ -26,9 +26,9 @@ class TestKafkaIntegration:
     async def kafka_manager(self, kafka_config):
         """Kafka manager instance."""
         manager = KafkaManager(kafka_config.kafka)
-        await manager.start()
+        await manager.initialize()
         yield manager
-        await manager.stop()
+        await manager.shutdown()
 
     @pytest.mark.asyncio
     async def test_topic_creation_and_management(self, kafka_manager):

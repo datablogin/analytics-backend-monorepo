@@ -38,9 +38,9 @@ class TestKafkaStreamProcessingIntegration:
     async def kafka_manager(self, kafka_config):
         """Kafka manager instance for testing."""
         manager = KafkaManager(kafka_config.kafka)
-        await manager.start()
+        await manager.initialize()
         yield manager
-        await manager.stop()
+        await manager.shutdown()
 
     @pytest.fixture
     async def stream_processor(self, kafka_config):

@@ -429,6 +429,12 @@ class KafkaConsumerManager:
                     "Handler not found for removal", event_type=event_type
                 )
 
+    def __aiter__(self):
+        """Support async iteration over raw messages."""
+        if not self._is_running or not self.consumer:
+            raise RuntimeError("Consumer not running")
+        return self.consumer.__aiter__()
+
     async def consume_messages(self, max_messages: int | None = None) -> None:
         """Consume messages from Kafka topics."""
         if not self._is_running or not self.consumer:
@@ -655,6 +661,70 @@ class KafkaManager:
             )
 
         return self.consumers[consumer_key]
+
+    # Topic management wrapper methods
+    async def create_topic(
+        self,
+        topic_name: str,
+        num_partitions: int = 3,
+        replication_factor: int = 1,
+        config: dict[str, str] | None = None,
+    ) -> bool:
+        """Create a Kafka topic."""
+        return await self.topic_manager.create_topic(
+            topic_name, num_partitions, replication_factor, config
+        )
+
+    async def list_topics(self) -> list[str]:
+        """List all Kafka topics."""
+        return await self.topic_manager.list_topics()
+
+    async def delete_topic(self, topic_name: str) -> bool:
+        """Delete a Kafka topic."""
+        return await self.topic_manager.delete_topic(topic_name)
+
+    async def get_topic_metadata(self, topic_name: str) -> dict[str, Any]:
+        """Get topic metadata including partition count."""
+        try:
+            # Use admin client to get topic metadata
+            metadata = self.topic_manager.admin_client.list_topics(timeout=10)
+            if topic_name in metadata.topics:
+                topic_metadata = metadata.topics[topic_name]
+                return {
+                    "partition_count": len(topic_metadata.partitions),
+                    "partitions": {
+                        partition_id: {
+                            "replicas": [replica.id for replica in partition.replicas],
+                            "leader": partition.leader.id if partition.leader else None,
+                        }
+                        for partition_id, partition in topic_metadata.partitions.items()
+                    },
+                }
+            else:
+                return {"partition_count": 0, "partitions": {}}
+        except Exception as e:
+            self.logger.error(
+                "Failed to get topic metadata", topic=topic_name, error=str(e)
+            )
+            return {"partition_count": 0, "partitions": {}}
+
+    # Event production methods
+    async def produce_event(self, topic: str, event: dict[str, Any]) -> None:
+        """Produce an event to a Kafka topic."""
+        producer = await self.get_producer()
+        # For integration tests, we need to create an EventSchema from dict
+        from .event_store import get_event_store
+
+        event_store = get_event_store()
+        # Convert dict to EventSchema for compatibility
+        event_schema = event_store.validate_event(event)
+        await producer.send_event(topic, event_schema)
+
+    async def create_consumer(
+        self, topics: list[str], group_id: str
+    ) -> KafkaConsumerManager:
+        """Create a consumer for the given topics and group."""
+        return await self.get_consumer(group_id, topics)
 
     async def shutdown(self) -> None:
         """Shutdown all producers and consumers."""
