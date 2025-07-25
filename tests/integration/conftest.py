@@ -218,12 +218,8 @@ def pytest_collection_modifyitems(config, items):
 def pytest_runtest_setup(item):
     """Setup function to skip tests if required services are not available."""
     if "integration" in [marker.name for marker in item.iter_markers()]:
-        # Check if running in appropriate environment
-        if not (
-            os.getenv("RUN_INTEGRATION_TESTS")
-            or os.getenv("GITHUB_ACTIONS")
-            or os.getenv("CI")
-        ):
+        # Integration tests only run when explicitly requested
+        if not os.getenv("RUN_INTEGRATION_TESTS"):
             pytest.skip(
                 "Integration tests require RUN_INTEGRATION_TESTS=1 environment variable"
             )
