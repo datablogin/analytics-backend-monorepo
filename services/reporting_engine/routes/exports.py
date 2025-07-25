@@ -339,7 +339,7 @@ def _get_streaming_export_data(query: dict, filters: dict) -> dict[str, Any]:
             "time_period": "Last 24 hours",
             "avg_throughput": sum(int(m["events_per_second"]) for m in metrics_data)  # type: ignore[misc,arg-type,call-overload]
             / len(metrics_data),
-            "avg_latency": sum(float(m["avg_latency_ms"]) for m in metrics_data)  # type: ignore[misc,arg-type]
+            "avg_latency": sum(float(m["avg_latency_ms"]) for m in metrics_data)  # type: ignore[misc,arg-type,call-overload]
             / len(metrics_data),
             "export_date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         },
@@ -377,8 +377,8 @@ def _get_data_quality_export_data(query: dict, filters: dict) -> dict[str, Any]:
             "avg_quality_score": sum(float(d["quality_score"]) for d in quality_data)  # type: ignore[misc,arg-type]
             / len(quality_data),
             "total_violations": sum(
-                int(d["null_violations"])
-                + int(d["format_violations"])
+                int(d["null_violations"])  # type: ignore[misc,arg-type,call-overload]
+                + int(d["format_violations"])  # type: ignore[misc,arg-type,call-overload]
                 + int(d["range_violations"])  # type: ignore[misc,arg-type,call-overload]
                 for d in quality_data
             ),
