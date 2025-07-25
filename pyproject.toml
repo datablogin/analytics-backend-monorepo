@@ -103,7 +103,7 @@ line-length = 88
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "N", "W", "UP"]
-ignore = ["E501", "UP017", "N806"]
+ignore = ["E501", "UP017", "N806", "N805"]
 
 [tool.ruff.format]
 quote-style = "double"
