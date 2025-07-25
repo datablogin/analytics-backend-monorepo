@@ -1,6 +1,7 @@
 """Report management routes."""
 
 import time
+from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -39,7 +40,6 @@ async def create_report(
     current_user: dict = Depends(get_current_user),
 ) -> StandardResponse[ReportResponse]:
     """Create a new report."""
-    start_time = time.time()
 
     try:
         # Create new report
@@ -58,15 +58,13 @@ async def create_report(
         await db.commit()
         await db.refresh(report)
 
-        processing_time = round((time.time() - start_time) * 1000, 2)
 
         return StandardResponse(
             success=True,
             data=ReportResponse.model_validate(report),
             metadata=APIMetadata(
                 version="v1",
-                timestamp=time.time(),
-                processing_time_ms=processing_time,
+                timestamp=datetime.utcnow(),
             ),
         )
 
@@ -93,7 +91,6 @@ async def list_reports(
     current_user: dict = Depends(get_current_user),
 ) -> StandardResponse[list[ReportResponse]]:
     """Get all reports for the current user."""
-    start_time = time.time()
 
     try:
         # Build query
@@ -111,16 +108,13 @@ async def list_reports(
         result = await db.execute(query)
         reports = result.scalars().all()
 
-        processing_time = round((time.time() - start_time) * 1000, 2)
 
         return StandardResponse(
             success=True,
             data=[ReportResponse.model_validate(report) for report in reports],
             metadata=APIMetadata(
                 version="v1",
-                timestamp=time.time(),
-                processing_time_ms=processing_time,
-                total_count=len(reports),
+                timestamp=datetime.utcnow(),
             ),
         )
 
@@ -141,7 +135,6 @@ async def get_report(
     current_user: dict = Depends(get_current_user),
 ) -> StandardResponse[ReportResponse]:
     """Get a specific report by ID."""
-    start_time = time.time()
 
     try:
         query = select(Report).where(
@@ -154,15 +147,13 @@ async def get_report(
         if not report:
             raise HTTPException(status_code=404, detail="Report not found")
 
-        processing_time = round((time.time() - start_time) * 1000, 2)
 
         return StandardResponse(
             success=True,
             data=ReportResponse.model_validate(report),
             metadata=APIMetadata(
                 version="v1",
-                timestamp=time.time(),
-                processing_time_ms=processing_time,
+                timestamp=datetime.utcnow(),
             ),
         )
 
@@ -186,7 +177,6 @@ async def update_report(
     current_user: dict = Depends(get_current_user),
 ) -> StandardResponse[ReportResponse]:
     """Update an existing report."""
-    start_time = time.time()
 
     try:
         query = select(Report).where(
@@ -216,15 +206,13 @@ async def update_report(
         await db.commit()
         await db.refresh(report)
 
-        processing_time = round((time.time() - start_time) * 1000, 2)
 
         return StandardResponse(
             success=True,
             data=ReportResponse.model_validate(report),
             metadata=APIMetadata(
                 version="v1",
-                timestamp=time.time(),
-                processing_time_ms=processing_time,
+                timestamp=datetime.utcnow(),
             ),
         )
 
@@ -250,7 +238,6 @@ async def delete_report(
     current_user: dict = Depends(get_current_user),
 ) -> StandardResponse[None]:
     """Delete a report."""
-    start_time = time.time()
 
     try:
         query = select(Report).where(
@@ -266,7 +253,6 @@ async def delete_report(
         await db.delete(report)
         await db.commit()
 
-        processing_time = round((time.time() - start_time) * 1000, 2)
 
         return StandardResponse(
             success=True,
@@ -274,8 +260,7 @@ async def delete_report(
             message="Report deleted successfully",
             metadata=APIMetadata(
                 version="v1",
-                timestamp=time.time(),
-                processing_time_ms=processing_time,
+                timestamp=datetime.utcnow(),
             ),
         )
 
@@ -302,7 +287,6 @@ async def execute_report(
     current_user: dict = Depends(get_current_user),
 ) -> StandardResponse[ReportExecutionResponse]:
     """Execute a report."""
-    start_time = time.time()
 
     try:
         # Get report
@@ -387,15 +371,13 @@ async def execute_report(
                     status_code=500, detail=f"Report execution failed: {str(e)}"
                 )
 
-        processing_time = round((time.time() - start_time) * 1000, 2)
 
         return StandardResponse(
             success=True,
             data=ReportExecutionResponse.model_validate(execution),
             metadata=APIMetadata(
                 version="v1",
-                timestamp=time.time(),
-                processing_time_ms=processing_time,
+                timestamp=datetime.utcnow(),
             ),
         )
 
@@ -423,7 +405,6 @@ async def list_report_executions(
     current_user: dict = Depends(get_current_user),
 ) -> StandardResponse[list[ReportExecutionResponse]]:
     """Get execution history for a report."""
-    start_time = time.time()
 
     try:
         # Verify report ownership
@@ -449,7 +430,6 @@ async def list_report_executions(
         result = await db.execute(query)
         executions = result.scalars().all()
 
-        processing_time = round((time.time() - start_time) * 1000, 2)
 
         return StandardResponse(
             success=True,
@@ -459,9 +439,7 @@ async def list_report_executions(
             ],
             metadata=APIMetadata(
                 version="v1",
-                timestamp=time.time(),
-                processing_time_ms=processing_time,
-                total_count=len(executions),
+                timestamp=datetime.utcnow(),
             ),
         )
 

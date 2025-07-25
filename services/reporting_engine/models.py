@@ -9,10 +9,9 @@ from pydantic import BaseModel, Field
 from sqlalchemy import JSON, Column, DateTime, String, Text
 from sqlalchemy import Enum as SQLEnum
 from sqlalchemy.dialects.postgresql import UUID
-from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.sql import func
 
-Base = declarative_base()
+from libs.analytics_core.database import Base
 
 
 class ReportType(str, Enum):
@@ -57,7 +56,7 @@ class ReportFrequency(str, Enum):
 
 
 # SQLAlchemy Models
-class Report(Base):
+class Report(Base):  # type: ignore[misc]
     """Report database model."""
 
     __tablename__ = "reports"
@@ -65,15 +64,17 @@ class Report(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     name = Column(String(255), nullable=False)
     description = Column(Text)
-    report_type = Column(SQLEnum(ReportType), nullable=False)
-    status = Column(SQLEnum(ReportStatus), default=ReportStatus.PENDING)
+    report_type: ReportType = Column(SQLEnum(ReportType), nullable=False)
+    status: ReportStatus = Column(SQLEnum(ReportStatus), default=ReportStatus.PENDING)
 
     # Configuration
     config = Column(JSON, nullable=False)
     filters = Column(JSON, default={})
 
     # Scheduling
-    frequency = Column(SQLEnum(ReportFrequency), default=ReportFrequency.ONCE)
+    frequency: ReportFrequency = Column(
+        SQLEnum(ReportFrequency), default=ReportFrequency.ONCE
+    )
     next_run = Column(DateTime(timezone=True))
 
     # Metadata
@@ -87,7 +88,7 @@ class Report(Base):
     processing_time_ms = Column(String(50))
 
 
-class ReportExecution(Base):
+class ReportExecution(Base):  # type: ignore[misc]
     """Report execution history."""
 
     __tablename__ = "report_executions"
@@ -95,8 +96,8 @@ class ReportExecution(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     report_id = Column(UUID(as_uuid=True), nullable=False)
 
-    status = Column(SQLEnum(ReportStatus), default=ReportStatus.PENDING)
-    format = Column(SQLEnum(ReportFormat), nullable=False)
+    status: ReportStatus = Column(SQLEnum(ReportStatus), default=ReportStatus.PENDING)
+    format: ReportFormat = Column(SQLEnum(ReportFormat), nullable=False)
 
     started_at = Column(DateTime(timezone=True), server_default=func.now())
     completed_at = Column(DateTime(timezone=True))

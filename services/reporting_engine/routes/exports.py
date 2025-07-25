@@ -2,6 +2,7 @@
 
 import os
 import time
+from datetime import datetime
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -32,7 +33,6 @@ async def export_data(
     current_user: dict = Depends(get_current_user),
 ) -> StandardResponse[dict[str, Any]]:
     """Export data to specified format."""
-    start_time = time.time()
 
     try:
         # Generate filename if not provided
@@ -56,7 +56,6 @@ async def export_data(
         # Export to requested format
         result = export_report(export_data, request.format.value, request.filename)
 
-        processing_time = round((time.time() - start_time) * 1000, 2)
 
         return StandardResponse(
             success=True,
@@ -69,8 +68,7 @@ async def export_data(
             message="Export completed successfully",
             metadata=APIMetadata(
                 version="v1",
-                timestamp=time.time(),
-                processing_time_ms=processing_time,
+                timestamp=datetime.utcnow(),
             ),
         )
 
@@ -131,7 +129,6 @@ async def get_export_formats(
     current_user: dict = Depends(get_current_user),
 ) -> StandardResponse[dict[str, Any]]:
     """Get available export formats."""
-    start_time = time.time()
 
     try:
         formats = {
@@ -182,15 +179,13 @@ async def get_export_formats(
             },
         }
 
-        processing_time = round((time.time() - start_time) * 1000, 2)
 
         return StandardResponse(
             success=True,
             data=formats,
             metadata=APIMetadata(
                 version="v1",
-                timestamp=time.time(),
-                processing_time_ms=processing_time,
+                timestamp=datetime.utcnow(),
             ),
         )
 
@@ -209,7 +204,6 @@ async def get_export_templates(
     current_user: dict = Depends(get_current_user),
 ) -> StandardResponse[dict[str, Any]]:
     """Get predefined export templates."""
-    start_time = time.time()
 
     try:
         templates = {
@@ -271,15 +265,13 @@ async def get_export_templates(
             },
         }
 
-        processing_time = round((time.time() - start_time) * 1000, 2)
 
         return StandardResponse(
             success=True,
             data=templates,
             metadata=APIMetadata(
                 version="v1",
-                timestamp=time.time(),
-                processing_time_ms=processing_time,
+                timestamp=datetime.utcnow(),
             ),
         )
 

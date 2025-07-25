@@ -1,6 +1,7 @@
 """Dashboard and visualization routes."""
 
 import time
+from datetime import datetime
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect
@@ -87,7 +88,6 @@ async def create_dashboard(
     current_user: dict = Depends(get_current_user),
 ) -> StandardResponse[DashboardConfig]:
     """Create a new dashboard."""
-    start_time = time.time()
 
     try:
         # For now, we'll return the dashboard config as is
@@ -101,7 +101,6 @@ async def create_dashboard(
             filters=request.filters,
         )
 
-        processing_time = round((time.time() - start_time) * 1000, 2)
 
         return StandardResponse(
             success=True,
@@ -109,8 +108,7 @@ async def create_dashboard(
             message="Dashboard created successfully",
             metadata=APIMetadata(
                 version="v1",
-                timestamp=time.time(),
-                processing_time_ms=processing_time,
+                timestamp=datetime.utcnow(),
             ),
         )
 
@@ -131,7 +129,6 @@ async def get_dashboard_templates(
     current_user: dict = Depends(get_current_user),
 ) -> StandardResponse[list[DashboardConfig]]:
     """Get predefined dashboard templates."""
-    start_time = time.time()
 
     try:
         templates = [
@@ -340,15 +337,13 @@ async def get_dashboard_templates(
             ),
         ]
 
-        processing_time = round((time.time() - start_time) * 1000, 2)
 
         return StandardResponse(
             success=True,
             data=templates,
             metadata=APIMetadata(
                 version="v1",
-                timestamp=time.time(),
-                processing_time_ms=processing_time,
+                timestamp=datetime.utcnow(),
             ),
         )
 
@@ -373,7 +368,6 @@ async def get_dashboard_data(
     current_user: dict = Depends(get_current_user),
 ) -> StandardResponse[dict[str, Any]]:
     """Get data for dashboard widgets."""
-    start_time = time.time()
 
     try:
         # Parse filters if provided
@@ -391,15 +385,13 @@ async def get_dashboard_data(
         else:
             data = {"message": f"Unknown data source: {data_source}"}
 
-        processing_time = round((time.time() - start_time) * 1000, 2)
 
         return StandardResponse(
             success=True,
             data=data,
             metadata=APIMetadata(
                 version="v1",
-                timestamp=time.time(),
-                processing_time_ms=processing_time,
+                timestamp=datetime.utcnow(),
             ),
         )
 
@@ -441,7 +433,6 @@ async def broadcast_dashboard_update(
     current_user: dict = Depends(get_current_user),
 ) -> StandardResponse[None]:
     """Broadcast data update to dashboard subscribers."""
-    start_time = time.time()
 
     try:
         import json
@@ -457,7 +448,6 @@ async def broadcast_dashboard_update(
 
         await connection_manager.broadcast_to_dashboard(message, dashboard_id)
 
-        processing_time = round((time.time() - start_time) * 1000, 2)
 
         return StandardResponse(
             success=True,
@@ -465,8 +455,7 @@ async def broadcast_dashboard_update(
             message="Update broadcasted successfully",
             metadata=APIMetadata(
                 version="v1",
-                timestamp=time.time(),
-                processing_time_ms=processing_time,
+                timestamp=datetime.utcnow(),
             ),
         )
 

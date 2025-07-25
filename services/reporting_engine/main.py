@@ -1,9 +1,10 @@
-import time
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
+from datetime import datetime
 
 from fastapi import Depends, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from libs.analytics_core.database import get_db_session, initialize_database
@@ -37,7 +38,12 @@ from .routes import dashboard, exports, reports
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     """Application lifespan management."""
     # Startup
-    await initialize_database()
+    import os
+
+    database_url = os.getenv(
+        "DATABASE_URL", "sqlite+aiosqlite:///./reporting_engine.db"
+    )
+    initialize_database(database_url)
     configure_observability()
 
     # Initialize Celery if needed
@@ -71,7 +77,7 @@ app.add_middleware(
 )
 
 app.add_middleware(SecurityHeadersMiddleware)
-app.add_middleware(RateLimitMiddleware, calls=100, period=60)  # 100 calls per minute
+app.add_middleware(RateLimitMiddleware, requests_per_minute=100)
 app.add_middleware(ResponseStandardizationMiddleware)
 app.add_middleware(RequestLoggingMiddleware)
 app.add_middleware(ObservabilityMiddleware)
@@ -104,11 +110,10 @@ async def health_check(
     db: AsyncSession = Depends(get_db_session),
 ) -> StandardResponse[HealthStatus]:
     """Health check endpoint."""
-    start_time = time.time()
 
     # Test database connection
     try:
-        await db.execute("SELECT 1")
+        await db.execute(text("SELECT 1"))
         db_status = "healthy"
     except Exception:
         db_status = "unhealthy"
@@ -123,7 +128,6 @@ async def health_check(
     except Exception:
         celery_status = "unhealthy"
 
-    processing_time = round((time.time() - start_time) * 1000, 2)
 
     overall_status = (
         "healthy"
@@ -133,13 +137,11 @@ async def health_check(
 
     health_data = HealthStatus(
         status=overall_status,
-        timestamp=time.time(),
         version="1.0.0",
-        dependencies={
+        checks={
             "database": db_status,
             "celery": celery_status,
         },
-        processing_time_ms=processing_time,
     )
 
     return StandardResponse(
@@ -147,8 +149,7 @@ async def health_check(
         data=health_data,
         metadata=APIMetadata(
             version="v1",
-            timestamp=time.time(),
-            processing_time_ms=processing_time,
+            timestamp=datetime.utcnow(),
         ),
     )
 

@@ -4,7 +4,7 @@ import os
 
 from celery import Celery
 
-from libs.config.base import Environment, get_environment
+from libs.config.base import Environment
 
 # Create Celery instance
 celery_app = Celery("reporting_engine")
@@ -13,7 +13,7 @@ celery_app = Celery("reporting_engine")
 def init_celery():
     """Initialize Celery with configuration."""
     # Configuration based on environment
-    env = get_environment()
+    env = Environment(os.getenv("ENVIRONMENT", Environment.DEVELOPMENT))
 
     if env == Environment.DEVELOPMENT:
         broker_url = os.getenv("CELERY_BROKER_URL", "redis://localhost:6379/0")
