@@ -58,7 +58,6 @@ async def create_report(
         await db.commit()
         await db.refresh(report)
 
-
         return StandardResponse(
             success=True,
             data=ReportResponse.model_validate(report),
@@ -108,7 +107,6 @@ async def list_reports(
         result = await db.execute(query)
         reports = result.scalars().all()
 
-
         return StandardResponse(
             success=True,
             data=[ReportResponse.model_validate(report) for report in reports],
@@ -146,7 +144,6 @@ async def get_report(
 
         if not report:
             raise HTTPException(status_code=404, detail="Report not found")
-
 
         return StandardResponse(
             success=True,
@@ -206,7 +203,6 @@ async def update_report(
         await db.commit()
         await db.refresh(report)
 
-
         return StandardResponse(
             success=True,
             data=ReportResponse.model_validate(report),
@@ -252,7 +248,6 @@ async def delete_report(
 
         await db.delete(report)
         await db.commit()
-
 
         return StandardResponse(
             success=True,
@@ -371,7 +366,6 @@ async def execute_report(
                     status_code=500, detail=f"Report execution failed: {str(e)}"
                 )
 
-
         return StandardResponse(
             success=True,
             data=ReportExecutionResponse.model_validate(execution),
@@ -429,7 +423,6 @@ async def list_report_executions(
 
         result = await db.execute(query)
         executions = result.scalars().all()
-
 
         return StandardResponse(
             success=True,

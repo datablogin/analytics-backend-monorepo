@@ -128,7 +128,6 @@ async def health_check(
     except Exception:
         celery_status = "unhealthy"
 
-
     overall_status = (
         "healthy"
         if all([db_status == "healthy", celery_status == "healthy"])

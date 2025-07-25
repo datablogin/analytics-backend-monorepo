@@ -56,7 +56,6 @@ async def export_data(
         # Export to requested format
         result = export_report(export_data, request.format.value, request.filename)
 
-
         return StandardResponse(
             success=True,
             data={
@@ -179,7 +178,6 @@ async def get_export_formats(
             },
         }
 
-
         return StandardResponse(
             success=True,
             data=formats,
@@ -264,7 +262,6 @@ async def get_export_templates(
                 "default_format": "pdf",
             },
         }
-
 
         return StandardResponse(
             success=True,

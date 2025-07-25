@@ -101,7 +101,6 @@ async def create_dashboard(
             filters=request.filters,
         )
 
-
         return StandardResponse(
             success=True,
             data=dashboard,
@@ -337,7 +336,6 @@ async def get_dashboard_templates(
             ),
         ]
 
-
         return StandardResponse(
             success=True,
             data=templates,
@@ -384,7 +382,6 @@ async def get_dashboard_data(
             data = _get_data_quality_data(metric, parsed_filters)
         else:
             data = {"message": f"Unknown data source: {data_source}"}
-
 
         return StandardResponse(
             success=True,
@@ -447,7 +444,6 @@ async def broadcast_dashboard_update(
         )
 
         await connection_manager.broadcast_to_dashboard(message, dashboard_id)
-
 
         return StandardResponse(
             success=True,
