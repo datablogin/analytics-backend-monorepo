@@ -19,26 +19,30 @@ class KafkaConfig(BaseModel):
     ssl_key_location: str | None = Field(default=None)
 
     # Producer config
-    producer_config: dict[str, Any] = Field(default_factory=lambda: {
-        "acks": "all",
-        "retries": 3,
-        "batch_size": 16384,
-        "linger_ms": 5,
-        "buffer_memory": 33554432,
-        "compression_type": "gzip",
-        "enable_idempotence": True,
-    })
+    producer_config: dict[str, Any] = Field(
+        default_factory=lambda: {
+            "acks": "all",
+            "retries": 3,
+            "batch_size": 16384,
+            "linger_ms": 5,
+            "buffer_memory": 33554432,
+            "compression_type": "gzip",
+            "enable_idempotence": True,
+        }
+    )
 
     # Consumer config
-    consumer_config: dict[str, Any] = Field(default_factory=lambda: {
-        "auto_offset_reset": "earliest",
-        "enable_auto_commit": False,
-        "max_poll_records": 500,
-        "session_timeout_ms": 30000,
-        "heartbeat_interval_ms": 3000,
-        "fetch_min_bytes": 1024,
-        "fetch_max_wait_ms": 500,
-    })
+    consumer_config: dict[str, Any] = Field(
+        default_factory=lambda: {
+            "auto_offset_reset": "earliest",
+            "enable_auto_commit": False,
+            "max_poll_records": 500,
+            "session_timeout_ms": 30000,
+            "heartbeat_interval_ms": 3000,
+            "fetch_min_bytes": 1024,
+            "fetch_max_wait_ms": 500,
+        }
+    )
 
     # Dead letter queue configuration
     enable_dead_letter_queue: bool = Field(default=True)
@@ -153,7 +157,9 @@ class StreamingConfig(BaseSettings):
 
     # Component configs
     kafka: KafkaConfig = Field(default_factory=KafkaConfig)
-    stream_processing: StreamProcessingConfig = Field(default_factory=StreamProcessingConfig)
+    stream_processing: StreamProcessingConfig = Field(
+        default_factory=StreamProcessingConfig
+    )
     websocket: WebSocketConfig = Field(default_factory=WebSocketConfig)
     realtime_ml: RealtimeMLConfig = Field(default_factory=RealtimeMLConfig)
     monitoring: MonitoringConfig = Field(default_factory=MonitoringConfig)
@@ -182,4 +188,3 @@ class StreamingConfig(BaseSettings):
 def get_streaming_config() -> StreamingConfig:
     """Get streaming configuration instance."""
     return StreamingConfig()
-

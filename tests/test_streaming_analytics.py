@@ -37,7 +37,7 @@ class TestEventStore:
             event_type=EventType.USER_ACTION,
             event_name="page_view",
             payload={"page": "/home", "element": "navbar"},
-            source_service="web_app"
+            source_service="web_app",
         )
 
         assert event.event_type == EventType.USER_ACTION
@@ -54,10 +54,7 @@ class TestEventStore:
             "session_id": "session456",
             "action": "click",
             "source_service": "web_app",
-            "payload": {
-                "page": "/dashboard",
-                "element": "submit_button"
-            }
+            "payload": {"page": "/dashboard", "element": "submit_button"},
         }
 
         store = EventStore()
@@ -75,7 +72,7 @@ class TestEventStore:
             event_type=EventType.SYSTEM_EVENT,
             event_name="service_started",
             payload={"service": "api", "port": 8080},
-            source_service="analytics_api"
+            source_service="analytics_api",
         )
 
         # Serialize to JSON
@@ -102,17 +99,17 @@ class TestStreamProcessing:
         processor.define_window(
             key_field="source_service",
             window_type=WindowType.TUMBLING,
-            size_ms=60000  # 1 minute
+            size_ms=60000,  # 1 minute
         )
 
         await processor.start()
 
         # Check processor is running
         stats = processor.get_stats()
-        assert stats['is_running'] is True
+        assert stats["is_running"] is True
 
         await processor.stop()
-        assert processor.get_stats()['is_running'] is False
+        assert processor.get_stats()["is_running"] is False
 
     @pytest.mark.asyncio
     async def test_event_processing_and_aggregation(self):
@@ -123,7 +120,7 @@ class TestStreamProcessing:
         processor.define_window(
             key_field="source_service",
             window_type=WindowType.TUMBLING,
-            size_ms=1000  # 1 second for testing
+            size_ms=1000,  # 1 second for testing
         )
 
         # Track aggregation results
@@ -145,7 +142,7 @@ class TestStreamProcessing:
                 event_type=EventType.USER_ACTION,
                 event_name=f"action_{i}",
                 payload={"action_id": i, "value": i * 10},
-                source_service="test_service"
+                source_service="test_service",
             )
             events.append(event)
 
@@ -160,8 +157,8 @@ class TestStreamProcessing:
 
         # Verify processing stats
         stats = processor.get_stats()
-        assert stats['processed_count'] == 5
-        assert stats['error_count'] == 0
+        assert stats["processed_count"] == 5
+        assert stats["error_count"] == 0
 
 
 class TestStreamingConfig:
@@ -215,10 +212,7 @@ class TestEventTypes:
             "session_id": "sess456",
             "action": "view",
             "source_service": "web_app",
-            "payload": {
-                "page": "/dashboard",
-                "element": "main_content"
-            }
+            "payload": {"page": "/dashboard", "element": "main_content"},
         }
 
         store = EventStore()
@@ -243,7 +237,7 @@ class TestEventTypes:
             "component": "test_component",
             "source_service": "test",
             "timestamp": 1640995200,  # Unix timestamp
-            "payload": {"test": "data"}
+            "payload": {"test": "data"},
         }
 
         event = store.validate_event(event_data, "system_event")

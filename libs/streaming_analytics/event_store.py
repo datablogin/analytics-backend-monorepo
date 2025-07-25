@@ -35,7 +35,9 @@ class EventSchema(BaseModel):
 
     # Source information
     source_service: str = Field(..., description="Service that generated the event")
-    source_version: str = Field(default="1.0.0", description="Version of source service")
+    source_version: str = Field(
+        default="1.0.0", description="Version of source service"
+    )
 
     # Trace information
     trace_id: str | None = Field(default=None, description="Distributed trace ID")
@@ -46,19 +48,21 @@ class EventSchema(BaseModel):
     payload: dict[str, Any] = Field(..., description="Event data")
 
     # Metadata
-    metadata: dict[str, Any] = Field(default_factory=dict, description="Additional metadata")
+    metadata: dict[str, Any] = Field(
+        default_factory=dict, description="Additional metadata"
+    )
     schema_version: str = Field(default="1.0", description="Schema version")
 
-    @validator('timestamp', pre=True)
+    @validator("timestamp", pre=True)
     def validate_timestamp(cls, v):
         """Validate and convert timestamp."""
         if isinstance(v, int | float):
             return datetime.fromtimestamp(v)
         elif isinstance(v, str):
-            return datetime.fromisoformat(v.replace('Z', '+00:00'))
+            return datetime.fromisoformat(v.replace("Z", "+00:00"))
         return v
 
-    @validator('payload')
+    @validator("payload")
     def validate_payload(cls, v):
         """Validate payload is not empty."""
         if not v:
@@ -99,10 +103,10 @@ class UserActionEvent(EventSchema):
     user_agent: str | None = Field(default=None)
     referrer: str | None = Field(default=None)
 
-    @validator('payload')
+    @validator("payload")
     def validate_user_action_payload(cls, v):
         """Validate user action payload structure."""
-        required_fields = ['page', 'element']
+        required_fields = ["page", "element"]
         for field in required_fields:
             if field not in v:
                 raise ValueError(f"User action payload must contain '{field}'")
@@ -118,10 +122,10 @@ class SystemEvent(EventSchema):
     component: str = Field(..., description="System component")
     severity: str = Field(default="INFO", description="Event severity")
 
-    @validator('severity')
+    @validator("severity")
     def validate_severity(cls, v):
         """Validate severity level."""
-        valid_levels = ['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL']
+        valid_levels = ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
         if v.upper() not in valid_levels:
             raise ValueError(f"Severity must be one of: {valid_levels}")
         return v.upper()
@@ -139,7 +143,7 @@ class MLPredictionEvent(EventSchema):
     confidence_score: float | None = Field(default=None)
     features_used: list[str] = Field(default_factory=list)
 
-    @validator('confidence_score')
+    @validator("confidence_score")
     def validate_confidence(cls, v):
         """Validate confidence score range."""
         if v is not None and not (0.0 <= v <= 1.0):
@@ -171,10 +175,10 @@ class MetricEvent(EventSchema):
     labels: dict[str, str] = Field(default_factory=dict, description="Metric labels")
     unit: str | None = Field(default=None, description="Metric unit")
 
-    @validator('metric_type')
+    @validator("metric_type")
     def validate_metric_type(cls, v):
         """Validate metric type."""
-        valid_types = ['counter', 'gauge', 'histogram', 'summary']
+        valid_types = ["counter", "gauge", "histogram", "summary"]
         if v.lower() not in valid_types:
             raise ValueError(f"Metric type must be one of: {valid_types}")
         return v.lower()
@@ -221,7 +225,9 @@ class EventStore:
         """List all registered schema names."""
         return list(self.schemas.keys())
 
-    def validate_event(self, event_data: dict[str, Any], schema_name: str = "base_event") -> EventSchema:
+    def validate_event(
+        self, event_data: dict[str, Any], schema_name: str = "base_event"
+    ) -> EventSchema:
         """Validate event data against schema."""
         schema_class = self.get_schema(schema_name)
         if not schema_class:
@@ -229,35 +235,41 @@ class EventStore:
 
         try:
             event = schema_class.model_validate(event_data)
-            self.logger.debug("Event validation successful",
-                            event_id=event.event_id,
-                            schema_name=schema_name)
+            self.logger.debug(
+                "Event validation successful",
+                event_id=event.event_id,
+                schema_name=schema_name,
+            )
             return event
         except ValidationError as e:
-            self.logger.error("Event validation failed",
-                            schema_name=schema_name,
-                            errors=e.errors())
+            self.logger.error(
+                "Event validation failed", schema_name=schema_name, errors=e.errors()
+            )
             raise
 
-    def create_event(self,
-                    event_type: EventType,
-                    event_name: str,
-                    payload: dict[str, Any],
-                    source_service: str,
-                    schema_name: str = "base_event",
-                    **kwargs) -> EventSchema:
+    def create_event(
+        self,
+        event_type: EventType,
+        event_name: str,
+        payload: dict[str, Any],
+        source_service: str,
+        schema_name: str = "base_event",
+        **kwargs,
+    ) -> EventSchema:
         """Create and validate a new event."""
         event_data = {
             "event_type": event_type,
             "event_name": event_name,
             "payload": payload,
             "source_service": source_service,
-            **kwargs
+            **kwargs,
         }
 
         return self.validate_event(event_data, schema_name)
 
-    def serialize_event(self, event: EventSchema, format: str = "json") -> str | bytes | dict[str, Any]:
+    def serialize_event(
+        self, event: EventSchema, format: str = "json"
+    ) -> str | bytes | dict[str, Any]:
         """Serialize event to specified format."""
         if format == "json":
             return event.to_json()
@@ -266,8 +278,9 @@ class EventStore:
         else:
             raise ValueError(f"Unsupported serialization format: {format}")
 
-    def deserialize_event(self, data: str | bytes | dict[str, Any],
-                         schema_name: str = "base_event") -> EventSchema:
+    def deserialize_event(
+        self, data: str | bytes | dict[str, Any], schema_name: str = "base_event"
+    ) -> EventSchema:
         """Deserialize event from data."""
         if isinstance(data, str | bytes):
             event_data = json.loads(data)
@@ -290,7 +303,7 @@ class EventStore:
             "class_name": schema_class.__name__,
             "json_schema": json_schema,
             "required_fields": json_schema.get("required", []),
-            "properties": list(json_schema.get("properties", {}).keys())
+            "properties": list(json_schema.get("properties", {}).keys()),
         }
 
 
@@ -303,22 +316,25 @@ def get_event_store() -> EventStore:
     return _event_store
 
 
-def create_event(event_type: EventType,
-                event_name: str,
-                payload: dict[str, Any],
-                source_service: str,
-                **kwargs) -> EventSchema:
+def create_event(
+    event_type: EventType,
+    event_name: str,
+    payload: dict[str, Any],
+    source_service: str,
+    **kwargs,
+) -> EventSchema:
     """Convenient function to create events."""
     return _event_store.create_event(
         event_type=event_type,
         event_name=event_name,
         payload=payload,
         source_service=source_service,
-        **kwargs
+        **kwargs,
     )
 
 
-def validate_event_data(event_data: dict[str, Any], schema_name: str = "base_event") -> EventSchema:
+def validate_event_data(
+    event_data: dict[str, Any], schema_name: str = "base_event"
+) -> EventSchema:
     """Convenient function to validate event data."""
     return _event_store.validate_event(event_data, schema_name)
-

@@ -23,6 +23,7 @@ logger = structlog.get_logger(__name__)
 
 class PredictionStatus(str, Enum):
     """Status of ML predictions."""
+
     SUCCESS = "success"
     ERROR = "error"
     TIMEOUT = "timeout"
@@ -33,6 +34,7 @@ class PredictionStatus(str, Enum):
 @dataclass
 class FeatureVector:
     """Feature vector for ML inference."""
+
     features: dict[str, Any]
     timestamp: datetime = field(default_factory=datetime.utcnow)
     entity_id: str | None = None
@@ -46,11 +48,14 @@ class FeatureVector:
 @dataclass
 class PredictionRequest:
     """Request for ML prediction."""
+
     model_name: str
     model_version: str | None = None
     features: FeatureVector | dict[str, Any] = None
     event: EventSchema | None = None
-    request_id: str = field(default_factory=lambda: f"pred_{int(time.time() * 1000000)}")
+    request_id: str = field(
+        default_factory=lambda: f"pred_{int(time.time() * 1000000)}"
+    )
     timeout_ms: int = 5000
     metadata: dict[str, Any] = field(default_factory=dict)
 
@@ -58,6 +63,7 @@ class PredictionRequest:
 @dataclass
 class PredictionResult:
     """Result of ML prediction."""
+
     request_id: str
     model_name: str
     model_version: str
@@ -74,16 +80,16 @@ class PredictionResult:
     def to_event(self, source_service: str = "realtime_ml") -> MLPredictionEvent:
         """Convert prediction result to ML prediction event."""
         payload = {
-            'request_id': self.request_id,
-            'prediction': self.prediction,
-            'inference_time_ms': self.inference_time_ms,
-            'total_time_ms': self.total_time_ms,
-            'status': self.status.value,
-            'feature_count': len(self.feature_names)
+            "request_id": self.request_id,
+            "prediction": self.prediction,
+            "inference_time_ms": self.inference_time_ms,
+            "total_time_ms": self.total_time_ms,
+            "status": self.status.value,
+            "feature_count": len(self.feature_names),
         }
 
         if self.error_message:
-            payload['error_message'] = self.error_message
+            payload["error_message"] = self.error_message
 
         return MLPredictionEvent(
             event_name="ml_prediction_result",
@@ -93,7 +99,7 @@ class PredictionResult:
             confidence_score=self.confidence_score,
             features_used=self.feature_names,
             source_service=source_service,
-            payload=payload
+            payload=payload,
         )
 
 
@@ -132,33 +138,43 @@ class DefaultFeatureExtractor(FeatureExtractor):
                         features[feature_name] = value
             else:
                 # Use payload directly as features
-                features = {k: v for k, v in payload.items()
-                          if isinstance(v, int | float | str | bool)}
+                features = {
+                    k: v
+                    for k, v in payload.items()
+                    if isinstance(v, int | float | str | bool)
+                }
 
             # Add metadata features
-            features.update({
-                'event_type': event.event_type.value,
-                'source_service': event.source_service,
-                'timestamp_hour': event.timestamp.hour,
-                'timestamp_day_of_week': event.timestamp.weekday()
-            })
+            features.update(
+                {
+                    "event_type": event.event_type.value,
+                    "source_service": event.source_service,
+                    "timestamp_hour": event.timestamp.hour,
+                    "timestamp_day_of_week": event.timestamp.weekday(),
+                }
+            )
 
             return FeatureVector(
                 features=features,
                 timestamp=event.timestamp,
                 entity_id=event.event_id,
-                metadata={'original_event_type': event.event_type.value}
+                metadata={"original_event_type": event.event_type.value},
             )
 
         except Exception as e:
-            self.logger.error("Feature extraction failed",
-                            event_id=event.event_id,
-                            error=str(e))
+            self.logger.error(
+                "Feature extraction failed", event_id=event.event_id, error=str(e)
+            )
             return None
 
     def get_feature_names(self) -> list[str]:
         """Get feature names (dynamic based on input)."""
-        base_features = ['event_type', 'source_service', 'timestamp_hour', 'timestamp_day_of_week']
+        base_features = [
+            "event_type",
+            "source_service",
+            "timestamp_hour",
+            "timestamp_day_of_week",
+        ]
         if self.feature_mapping:
             return list(self.feature_mapping.keys()) + base_features
         return base_features
@@ -167,7 +183,7 @@ class DefaultFeatureExtractor(FeatureExtractor):
         """Extract nested value using dot notation path."""
         try:
             value = data
-            for key in path.split('.'):
+            for key in path.split("."):
                 if isinstance(value, dict) and key in value:
                     value = value[key]
                 else:
@@ -206,9 +222,9 @@ class ModelCache:
         self.cache[model_key] = (model, datetime.utcnow())
         self.access_times[model_key] = datetime.utcnow()
 
-        self.logger.info("Model cached",
-                        model_key=model_key,
-                        cache_size=len(self.cache))
+        self.logger.info(
+            "Model cached", model_key=model_key, cache_size=len(self.cache)
+        )
 
     def remove_model(self, model_key: str) -> None:
         """Remove model from cache."""
@@ -222,8 +238,7 @@ class ModelCache:
         if not self.access_times:
             return
 
-        lru_key = min(self.access_times.keys(),
-                     key=lambda k: self.access_times[k])
+        lru_key = min(self.access_times.keys(), key=lambda k: self.access_times[k])
 
         self.remove_model(lru_key)
         self.logger.debug("Evicted LRU model", model_key=lru_key)
@@ -231,18 +246,20 @@ class ModelCache:
     def get_stats(self) -> dict[str, Any]:
         """Get cache statistics."""
         return {
-            'cache_size': len(self.cache),
-            'max_size': self.max_size,
-            'cached_models': list(self.cache.keys())
+            "cache_size": len(self.cache),
+            "max_size": self.max_size,
+            "cached_models": list(self.cache.keys()),
         }
 
 
 class RealtimeMLInferenceEngine:
     """Real-time ML inference engine."""
 
-    def __init__(self,
-                 config: RealtimeMLConfig | None = None,
-                 model_registry: ModelRegistry | None = None):
+    def __init__(
+        self,
+        config: RealtimeMLConfig | None = None,
+        model_registry: ModelRegistry | None = None,
+    ):
         self.config = config or get_streaming_config().realtime_ml
         self.model_registry = model_registry or ModelRegistry()
         self.model_cache = ModelCache(self.config.model_cache_size)
@@ -267,9 +284,11 @@ class RealtimeMLInferenceEngine:
         if self.config.batch_inference:
             self._batch_task = asyncio.create_task(self._process_batch_queue())
 
-        self.logger.info("Realtime ML inference engine started",
-                        batch_inference=self.config.batch_inference,
-                        max_batch_size=self.config.max_batch_size)
+        self.logger.info(
+            "Realtime ML inference engine started",
+            batch_inference=self.config.batch_inference,
+            max_batch_size=self.config.max_batch_size,
+        )
 
     async def stop(self) -> None:
         """Stop the inference engine."""
@@ -288,23 +307,26 @@ class RealtimeMLInferenceEngine:
             await self._process_batch(self._batch_queue.copy())
             self._batch_queue.clear()
 
-        self.logger.info("Realtime ML inference engine stopped",
-                        total_inferences=self._inference_count,
-                        total_errors=self._error_count)
+        self.logger.info(
+            "Realtime ML inference engine stopped",
+            total_inferences=self._inference_count,
+            total_errors=self._error_count,
+        )
 
-    def add_feature_extractor(self,
-                             event_type: EventType,
-                             extractor: FeatureExtractor) -> None:
+    def add_feature_extractor(
+        self, event_type: EventType, extractor: FeatureExtractor
+    ) -> None:
         """Add feature extractor for specific event type."""
         self.feature_extractors[event_type.value] = extractor
-        self.logger.info("Feature extractor added",
-                        event_type=event_type.value,
-                        extractor_type=type(extractor).__name__)
+        self.logger.info(
+            "Feature extractor added",
+            event_type=event_type.value,
+            extractor_type=type(extractor).__name__,
+        )
 
-    async def predict_from_event(self,
-                                event: EventSchema,
-                                model_name: str,
-                                model_version: str | None = None) -> PredictionResult | None:
+    async def predict_from_event(
+        self, event: EventSchema, model_name: str, model_version: str | None = None
+    ) -> PredictionResult | None:
         """Make prediction from event data."""
         # Extract features from event
         extractor = self.feature_extractors.get(event.event_type.value)
@@ -320,7 +342,7 @@ class RealtimeMLInferenceEngine:
                 model_version=model_version or "unknown",
                 prediction=None,
                 status=PredictionStatus.FEATURE_ERROR,
-                error_message="Failed to extract features from event"
+                error_message="Failed to extract features from event",
             )
 
         # Create prediction request
@@ -329,7 +351,7 @@ class RealtimeMLInferenceEngine:
             model_version=model_version,
             features=features,
             event=event,
-            request_id=f"event_{event.event_id}"
+            request_id=f"event_{event.event_id}",
         )
 
         return await self.predict(request)
@@ -340,7 +362,10 @@ class RealtimeMLInferenceEngine:
 
         try:
             # Handle batch vs single prediction
-            if self.config.batch_inference and len(self._batch_queue) < self.config.max_batch_size:
+            if (
+                self.config.batch_inference
+                and len(self._batch_queue) < self.config.max_batch_size
+            ):
                 # Add to batch queue
                 self._batch_queue.append(request)
 
@@ -363,10 +388,12 @@ class RealtimeMLInferenceEngine:
 
         except Exception as e:
             total_time_ms = (time.time() - start_time) * 1000
-            self.logger.error("Prediction failed",
-                            request_id=request.request_id,
-                            model_name=request.model_name,
-                            error=str(e))
+            self.logger.error(
+                "Prediction failed",
+                request_id=request.request_id,
+                model_name=request.model_name,
+                error=str(e),
+            )
 
             return PredictionResult(
                 request_id=request.request_id,
@@ -375,7 +402,7 @@ class RealtimeMLInferenceEngine:
                 prediction=None,
                 total_time_ms=total_time_ms,
                 status=PredictionStatus.ERROR,
-                error_message=str(e)
+                error_message=str(e),
             )
 
     async def _single_predict(self, request: PredictionRequest) -> PredictionResult:
@@ -390,7 +417,9 @@ class RealtimeMLInferenceEngine:
 
             if model is None:
                 # Load from model registry
-                model_version = await self._load_model(request.model_name, request.model_version)
+                model_version = await self._load_model(
+                    request.model_name, request.model_version
+                )
                 if model_version is None:
                     return PredictionResult(
                         request_id=request.request_id,
@@ -399,7 +428,7 @@ class RealtimeMLInferenceEngine:
                         prediction=None,
                         total_time_ms=(time.time() - start_time) * 1000,
                         status=PredictionStatus.MODEL_NOT_FOUND,
-                        error_message=f"Model {request.model_name} not found"
+                        error_message=f"Model {request.model_name} not found",
                     )
 
                 model = model_version.model_artifact
@@ -412,7 +441,9 @@ class RealtimeMLInferenceEngine:
                 features = FeatureVector(features=request.features or {})
 
             # Extract feature names from model or use defaults
-            feature_names = getattr(model, 'feature_names_', list(features.features.keys()))
+            feature_names = getattr(
+                model, "feature_names_", list(features.features.keys())
+            )
             feature_array = features.to_array(feature_names)
 
             # Reshape for single prediction
@@ -422,13 +453,13 @@ class RealtimeMLInferenceEngine:
             # Perform inference
             inference_start = time.time()
 
-            if hasattr(model, 'predict_proba'):
+            if hasattr(model, "predict_proba"):
                 # Classification with probabilities
                 prediction_proba = model.predict_proba(feature_array)
                 prediction = model.predict(feature_array)
                 confidence_score = float(np.max(prediction_proba[0]))
                 prediction_value = prediction[0] if len(prediction) > 0 else None
-            elif hasattr(model, 'predict'):
+            elif hasattr(model, "predict"):
                 # Standard prediction
                 prediction = model.predict(feature_array)
                 prediction_value = prediction[0] if len(prediction) > 0 else None
@@ -452,26 +483,32 @@ class RealtimeMLInferenceEngine:
                 feature_names=feature_names,
                 inference_time_ms=inference_time_ms,
                 total_time_ms=total_time_ms,
-                status=PredictionStatus.SUCCESS
+                status=PredictionStatus.SUCCESS,
             )
 
-            self.logger.debug("Prediction completed",
-                            request_id=request.request_id,
-                            model_name=request.model_name,
-                            inference_time_ms=inference_time_ms,
-                            total_time_ms=total_time_ms)
+            self.logger.debug(
+                "Prediction completed",
+                request_id=request.request_id,
+                model_name=request.model_name,
+                inference_time_ms=inference_time_ms,
+                total_time_ms=total_time_ms,
+            )
 
             return result
 
         except Exception as e:
             self._error_count += 1
-            inference_time_ms = (time.time() - inference_start) * 1000 if inference_start else 0
+            inference_time_ms = (
+                (time.time() - inference_start) * 1000 if inference_start else 0
+            )
             total_time_ms = (time.time() - start_time) * 1000
 
-            self.logger.error("Single prediction failed",
-                            request_id=request.request_id,
-                            model_name=request.model_name,
-                            error=str(e))
+            self.logger.error(
+                "Single prediction failed",
+                request_id=request.request_id,
+                model_name=request.model_name,
+                error=str(e),
+            )
 
             return PredictionResult(
                 request_id=request.request_id,
@@ -481,10 +518,12 @@ class RealtimeMLInferenceEngine:
                 inference_time_ms=inference_time_ms,
                 total_time_ms=total_time_ms,
                 status=PredictionStatus.ERROR,
-                error_message=str(e)
+                error_message=str(e),
             )
 
-    async def _load_model(self, model_name: str, model_version: str | None = None) -> ModelVersion | None:
+    async def _load_model(
+        self, model_name: str, model_version: str | None = None
+    ) -> ModelVersion | None:
         """Load model from registry."""
         try:
             if model_version:
@@ -492,10 +531,12 @@ class RealtimeMLInferenceEngine:
             else:
                 return await self.model_registry.get_latest_model_version(model_name)
         except Exception as e:
-            self.logger.error("Failed to load model",
-                            model_name=model_name,
-                            model_version=model_version,
-                            error=str(e))
+            self.logger.error(
+                "Failed to load model",
+                model_name=model_name,
+                model_version=model_version,
+                error=str(e),
+            )
             return None
 
     async def _process_batch_queue(self) -> None:
@@ -504,8 +545,8 @@ class RealtimeMLInferenceEngine:
             try:
                 if len(self._batch_queue) >= self.config.max_batch_size:
                     # Process full batch
-                    batch = self._batch_queue[:self.config.max_batch_size]
-                    self._batch_queue = self._batch_queue[self.config.max_batch_size:]
+                    batch = self._batch_queue[: self.config.max_batch_size]
+                    self._batch_queue = self._batch_queue[self.config.max_batch_size :]
                     await self._process_batch(batch)
 
                 elif self._batch_queue:
@@ -528,7 +569,9 @@ class RealtimeMLInferenceEngine:
                 self.logger.error("Error in batch processing", error=str(e))
                 await asyncio.sleep(1)  # Backoff on error
 
-    async def _process_batch(self, batch: list[PredictionRequest]) -> list[PredictionResult]:
+    async def _process_batch(
+        self, batch: list[PredictionRequest]
+    ) -> list[PredictionResult]:
         """Process a batch of prediction requests."""
         if not batch:
             return []
@@ -552,10 +595,12 @@ class RealtimeMLInferenceEngine:
                 model_results = await self._process_model_batch(model_key, requests)
                 all_results.extend(model_results)
             except Exception as e:
-                self.logger.error("Model batch processing failed",
-                                model_key=model_key,
-                                batch_size=len(requests),
-                                error=str(e))
+                self.logger.error(
+                    "Model batch processing failed",
+                    model_key=model_key,
+                    batch_size=len(requests),
+                    error=str(e),
+                )
 
                 # Create error results
                 for request in requests:
@@ -565,15 +610,15 @@ class RealtimeMLInferenceEngine:
                         model_version=request.model_version or "unknown",
                         prediction=None,
                         status=PredictionStatus.ERROR,
-                        error_message=str(e)
+                        error_message=str(e),
                     )
                     all_results.append(error_result)
 
         return all_results
 
-    async def _process_model_batch(self,
-                                  model_key: str,
-                                  requests: list[PredictionRequest]) -> list[PredictionResult]:
+    async def _process_model_batch(
+        self, model_key: str, requests: list[PredictionRequest]
+    ) -> list[PredictionResult]:
         """Process batch for a specific model."""
         start_time = time.time()
         results = []
@@ -582,21 +627,23 @@ class RealtimeMLInferenceEngine:
             # Load model
             model = self.model_cache.get_model(model_key)
             if model is None:
-                model_name, model_version = model_key.split(':', 1)
-                model_version = model_version if model_version != 'latest' else None
+                model_name, model_version = model_key.split(":", 1)
+                model_version = model_version if model_version != "latest" else None
 
                 model_version_obj = await self._load_model(model_name, model_version)
                 if model_version_obj is None:
                     # Create error results for all requests
                     for request in requests:
-                        results.append(PredictionResult(
-                            request_id=request.request_id,
-                            model_name=request.model_name,
-                            model_version=request.model_version or "unknown",
-                            prediction=None,
-                            status=PredictionStatus.MODEL_NOT_FOUND,
-                            error_message=f"Model {model_key} not found"
-                        ))
+                        results.append(
+                            PredictionResult(
+                                request_id=request.request_id,
+                                model_name=request.model_name,
+                                model_version=request.model_version or "unknown",
+                                prediction=None,
+                                status=PredictionStatus.MODEL_NOT_FOUND,
+                                error_message=f"Model {model_key} not found",
+                            )
+                        )
                     return results
 
                 model = model_version_obj.model_artifact
@@ -608,22 +655,29 @@ class RealtimeMLInferenceEngine:
                 if isinstance(request.features, FeatureVector):
                     feature_vectors.append(request.features)
                 else:
-                    feature_vectors.append(FeatureVector(features=request.features or {}))
+                    feature_vectors.append(
+                        FeatureVector(features=request.features or {})
+                    )
 
             # Get feature names and create batch array
-            feature_names = getattr(model, 'feature_names_',
-                                  list(feature_vectors[0].features.keys()) if feature_vectors else [])
+            feature_names = getattr(
+                model,
+                "feature_names_",
+                list(feature_vectors[0].features.keys()) if feature_vectors else [],
+            )
 
-            batch_features = np.array([fv.to_array(feature_names) for fv in feature_vectors])
+            batch_features = np.array(
+                [fv.to_array(feature_names) for fv in feature_vectors]
+            )
 
             # Perform batch inference
             inference_start = time.time()
 
-            if hasattr(model, 'predict_proba'):
+            if hasattr(model, "predict_proba"):
                 predictions_proba = model.predict_proba(batch_features)
                 predictions = model.predict(batch_features)
                 confidence_scores = np.max(predictions_proba, axis=1)
-            elif hasattr(model, 'predict'):
+            elif hasattr(model, "predict"):
                 predictions = model.predict(batch_features)
                 confidence_scores = [None] * len(predictions)
             else:
@@ -635,7 +689,9 @@ class RealtimeMLInferenceEngine:
             # Create results
             for i, request in enumerate(requests):
                 prediction_value = predictions[i] if i < len(predictions) else None
-                confidence_score = confidence_scores[i] if confidence_scores[i] is not None else None
+                confidence_score = (
+                    confidence_scores[i] if confidence_scores[i] is not None else None
+                )
 
                 result = PredictionResult(
                     request_id=request.request_id,
@@ -644,9 +700,10 @@ class RealtimeMLInferenceEngine:
                     prediction=prediction_value,
                     confidence_score=confidence_score,
                     feature_names=feature_names,
-                    inference_time_ms=inference_time_ms / len(requests),  # Amortized time
+                    inference_time_ms=inference_time_ms
+                    / len(requests),  # Amortized time
                     total_time_ms=total_time_ms / len(requests),
-                    status=PredictionStatus.SUCCESS
+                    status=PredictionStatus.SUCCESS,
                 )
                 results.append(result)
 
@@ -654,29 +711,35 @@ class RealtimeMLInferenceEngine:
             self._inference_count += len(requests)
             self._total_inference_time_ms += inference_time_ms
 
-            self.logger.debug("Batch inference completed",
-                            model_key=model_key,
-                            batch_size=len(requests),
-                            inference_time_ms=inference_time_ms,
-                            total_time_ms=total_time_ms)
+            self.logger.debug(
+                "Batch inference completed",
+                model_key=model_key,
+                batch_size=len(requests),
+                inference_time_ms=inference_time_ms,
+                total_time_ms=total_time_ms,
+            )
 
         except Exception as e:
             self._error_count += len(requests)
-            self.logger.error("Batch inference failed",
-                            model_key=model_key,
-                            batch_size=len(requests),
-                            error=str(e))
+            self.logger.error(
+                "Batch inference failed",
+                model_key=model_key,
+                batch_size=len(requests),
+                error=str(e),
+            )
 
             # Create error results
             for request in requests:
-                results.append(PredictionResult(
-                    request_id=request.request_id,
-                    model_name=request.model_name,
-                    model_version=request.model_version or "unknown",
-                    prediction=None,
-                    status=PredictionStatus.ERROR,
-                    error_message=str(e)
-                ))
+                results.append(
+                    PredictionResult(
+                        request_id=request.request_id,
+                        model_name=request.model_name,
+                        model_version=request.model_version or "unknown",
+                        prediction=None,
+                        status=PredictionStatus.ERROR,
+                        error_message=str(e),
+                    )
+                )
 
         return results
 
@@ -684,27 +747,31 @@ class RealtimeMLInferenceEngine:
         """Get inference engine statistics."""
         avg_inference_time = (
             self._total_inference_time_ms / max(self._inference_count, 1)
-            if self._inference_count > 0 else 0.0
+            if self._inference_count > 0
+            else 0.0
         )
 
         return {
-            'is_running': self._is_running,
-            'inference_count': self._inference_count,
-            'error_count': self._error_count,
-            'success_rate': self._inference_count / max(self._inference_count + self._error_count, 1),
-            'average_inference_time_ms': avg_inference_time,
-            'batch_queue_size': len(self._batch_queue),
-            'model_cache': self.model_cache.get_stats(),
-            'feature_extractors': list(self.feature_extractors.keys())
+            "is_running": self._is_running,
+            "inference_count": self._inference_count,
+            "error_count": self._error_count,
+            "success_rate": self._inference_count
+            / max(self._inference_count + self._error_count, 1),
+            "average_inference_time_ms": avg_inference_time,
+            "batch_queue_size": len(self._batch_queue),
+            "model_cache": self.model_cache.get_stats(),
+            "feature_extractors": list(self.feature_extractors.keys()),
         }
 
 
 class RealtimeMLPipeline:
     """Complete real-time ML pipeline integrating inference with stream processing."""
 
-    def __init__(self,
-                 config: RealtimeMLConfig | None = None,
-                 model_registry: ModelRegistry | None = None):
+    def __init__(
+        self,
+        config: RealtimeMLConfig | None = None,
+        model_registry: ModelRegistry | None = None,
+    ):
         self.config = config or get_streaming_config().realtime_ml
         self.inference_engine = RealtimeMLInferenceEngine(config, model_registry)
         self.logger = logger.bind(component="realtime_ml_pipeline")
@@ -720,16 +787,18 @@ class RealtimeMLPipeline:
         await self.inference_engine.stop()
         self.logger.info("Realtime ML pipeline stopped")
 
-    def add_prediction_handler(self, handler: Callable[[PredictionResult], None]) -> None:
+    def add_prediction_handler(
+        self, handler: Callable[[PredictionResult], None]
+    ) -> None:
         """Add handler for prediction results."""
         self._prediction_handlers.append(handler)
-        self.logger.info("Prediction handler added",
-                        handler_count=len(self._prediction_handlers))
+        self.logger.info(
+            "Prediction handler added", handler_count=len(self._prediction_handlers)
+        )
 
-    async def process_event_for_prediction(self,
-                                         event: EventSchema,
-                                         model_name: str,
-                                         model_version: str | None = None) -> None:
+    async def process_event_for_prediction(
+        self, event: EventSchema, model_name: str, model_version: str | None = None
+    ) -> None:
         """Process event and generate predictions."""
         try:
             # Make prediction
@@ -741,30 +810,40 @@ class RealtimeMLPipeline:
                 # Call prediction handlers
                 await self._call_prediction_handlers(result)
 
-                self.logger.debug("Event processed for prediction",
-                                event_id=event.event_id,
-                                model_name=model_name,
-                                status=result.status)
+                self.logger.debug(
+                    "Event processed for prediction",
+                    event_id=event.event_id,
+                    model_name=model_name,
+                    status=result.status,
+                )
 
         except Exception as e:
-            self.logger.error("Error processing event for prediction",
-                            event_id=event.event_id,
-                            model_name=model_name,
-                            error=str(e))
+            self.logger.error(
+                "Error processing event for prediction",
+                event_id=event.event_id,
+                model_name=model_name,
+                error=str(e),
+            )
 
     async def _call_prediction_handlers(self, result: PredictionResult) -> None:
         """Call all registered prediction handlers."""
         for handler in self._prediction_handlers:
             try:
                 if asyncio.iscoroutinefunction(handler):
-                    await handler(result)
+                    result_coro = handler(result)
+                    if result_coro is not None:
+                        await result_coro
                 else:
-                    await asyncio.get_event_loop().run_in_executor(None, handler, result)
+                    await asyncio.get_event_loop().run_in_executor(
+                        None, handler, result
+                    )
             except Exception as e:
-                self.logger.error("Error in prediction handler",
-                                handler=str(handler),
-                                request_id=result.request_id,
-                                error=str(e))
+                self.logger.error(
+                    "Error in prediction handler",
+                    handler=str(handler),
+                    request_id=result.request_id,
+                    error=str(e),
+                )
 
 
 # Global pipeline instance
@@ -789,4 +868,3 @@ async def shutdown_realtime_ml_pipeline() -> None:
     if _realtime_ml_pipeline:
         await _realtime_ml_pipeline.stop()
         _realtime_ml_pipeline = None
-

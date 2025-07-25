@@ -15,14 +15,16 @@ logger = structlog.get_logger(__name__)
 
 class CircuitState(str, Enum):
     """Circuit breaker states."""
+
     CLOSED = "closed"  # Normal operation
-    OPEN = "open"      # Failing, requests rejected
+    OPEN = "open"  # Failing, requests rejected
     HALF_OPEN = "half_open"  # Testing if service recovered
 
 
 @dataclass
 class CircuitBreakerConfig:
     """Configuration for circuit breaker."""
+
     failure_threshold: int = 5  # Number of failures to open circuit
     recovery_timeout_seconds: int = 60  # Time to wait before trying again
     success_threshold: int = 3  # Successes needed to close circuit in half-open
@@ -32,6 +34,7 @@ class CircuitBreakerConfig:
 @dataclass
 class CircuitBreakerStats:
     """Statistics for circuit breaker."""
+
     state: CircuitState = CircuitState.CLOSED
     failure_count: int = 0
     success_count: int = 0
@@ -58,9 +61,7 @@ class CircuitBreaker:
             # Check if we should reject the call
             if self._should_reject():
                 self.stats.total_requests += 1
-                raise CircuitBreakerOpenError(
-                    f"Circuit breaker {self.name} is open"
-                )
+                raise CircuitBreakerOpenError(f"Circuit breaker {self.name} is open")
 
         # Attempt the call
         self.stats.total_requests += 1
@@ -70,15 +71,16 @@ class CircuitBreaker:
             # Execute with timeout
             result = await asyncio.wait_for(
                 self._execute_function(func, *args, **kwargs),
-                timeout=self.config.timeout_seconds
+                timeout=self.config.timeout_seconds,
             )
 
             # Record success
             await self._record_success()
 
             execution_time = time.time() - start_time
-            self.logger.debug("Circuit breaker call succeeded",
-                            execution_time=execution_time)
+            self.logger.debug(
+                "Circuit breaker call succeeded", execution_time=execution_time
+            )
 
             return result
 
@@ -107,9 +109,11 @@ class CircuitBreaker:
 
         if self.stats.state == CircuitState.OPEN:
             # Check if we should transition to half-open
-            if (self.stats.last_failure_time and
-                datetime.utcnow() - self.stats.last_failure_time >=
-                timedelta(seconds=self.config.recovery_timeout_seconds)):
+            if (
+                self.stats.last_failure_time
+                and datetime.utcnow() - self.stats.last_failure_time
+                >= timedelta(seconds=self.config.recovery_timeout_seconds)
+            ):
                 self._transition_to_half_open()
                 return False
             return True
@@ -135,10 +139,12 @@ class CircuitBreaker:
         self.stats.total_failures += 1
         self.stats.last_failure_time = datetime.utcnow()
 
-        self.logger.warning("Circuit breaker call failed",
-                          error=error,
-                          failure_count=self.stats.failure_count,
-                          state=self.stats.state)
+        self.logger.warning(
+            "Circuit breaker call failed",
+            error=error,
+            failure_count=self.stats.failure_count,
+            state=self.stats.state,
+        )
 
         if self.stats.state == CircuitState.CLOSED:
             if self.stats.failure_count >= self.config.failure_threshold:
@@ -154,9 +160,11 @@ class CircuitBreaker:
 
         self._record_state_change(old_state, CircuitState.OPEN)
 
-        self.logger.warning("Circuit breaker opened",
-                          failure_count=self.stats.failure_count,
-                          failure_threshold=self.config.failure_threshold)
+        self.logger.warning(
+            "Circuit breaker opened",
+            failure_count=self.stats.failure_count,
+            failure_threshold=self.config.failure_threshold,
+        )
 
     async def _transition_to_closed(self) -> None:
         """Transition circuit breaker to CLOSED state."""
@@ -167,9 +175,11 @@ class CircuitBreaker:
 
         self._record_state_change(old_state, CircuitState.CLOSED)
 
-        self.logger.info("Circuit breaker closed",
-                        success_count=self.stats.success_count,
-                        success_threshold=self.config.success_threshold)
+        self.logger.info(
+            "Circuit breaker closed",
+            success_count=self.stats.success_count,
+            success_threshold=self.config.success_threshold,
+        )
 
     def _transition_to_half_open(self) -> None:
         """Transition circuit breaker to HALF_OPEN state."""
@@ -181,15 +191,19 @@ class CircuitBreaker:
 
         self.logger.info("Circuit breaker half-opened - testing service recovery")
 
-    def _record_state_change(self, from_state: CircuitState, to_state: CircuitState) -> None:
+    def _record_state_change(
+        self, from_state: CircuitState, to_state: CircuitState
+    ) -> None:
         """Record a state change."""
-        self.stats.state_changes.append({
-            'from_state': from_state.value,
-            'to_state': to_state.value,
-            'timestamp': datetime.utcnow().isoformat(),
-            'failure_count': self.stats.failure_count,
-            'success_count': self.stats.success_count
-        })
+        self.stats.state_changes.append(
+            {
+                "from_state": from_state.value,
+                "to_state": to_state.value,
+                "timestamp": datetime.utcnow().isoformat(),
+                "failure_count": self.stats.failure_count,
+                "success_count": self.stats.success_count,
+            }
+        )
 
         # Keep only last 50 state changes
         if len(self.stats.state_changes) > 50:
@@ -202,22 +216,24 @@ class CircuitBreaker:
             success_rate = self.stats.total_successes / self.stats.total_requests
 
         return {
-            'name': self.name,
-            'state': self.stats.state.value,
-            'failure_count': self.stats.failure_count,
-            'success_count': self.stats.success_count,
-            'total_requests': self.stats.total_requests,
-            'total_failures': self.stats.total_failures,
-            'total_successes': self.stats.total_successes,
-            'success_rate': success_rate,
-            'last_failure_time': self.stats.last_failure_time.isoformat() if self.stats.last_failure_time else None,
-            'config': {
-                'failure_threshold': self.config.failure_threshold,
-                'recovery_timeout_seconds': self.config.recovery_timeout_seconds,
-                'success_threshold': self.config.success_threshold,
-                'timeout_seconds': self.config.timeout_seconds
+            "name": self.name,
+            "state": self.stats.state.value,
+            "failure_count": self.stats.failure_count,
+            "success_count": self.stats.success_count,
+            "total_requests": self.stats.total_requests,
+            "total_failures": self.stats.total_failures,
+            "total_successes": self.stats.total_successes,
+            "success_rate": success_rate,
+            "last_failure_time": self.stats.last_failure_time.isoformat()
+            if self.stats.last_failure_time
+            else None,
+            "config": {
+                "failure_threshold": self.config.failure_threshold,
+                "recovery_timeout_seconds": self.config.recovery_timeout_seconds,
+                "success_threshold": self.config.success_threshold,
+                "timeout_seconds": self.config.timeout_seconds,
             },
-            'recent_state_changes': self.stats.state_changes[-10:]  # Last 10 changes
+            "recent_state_changes": self.stats.state_changes[-10:],  # Last 10 changes
         }
 
     def reset(self) -> None:
@@ -228,11 +244,13 @@ class CircuitBreaker:
 
 class CircuitBreakerOpenError(Exception):
     """Exception raised when circuit breaker is open."""
+
     pass
 
 
 class CircuitBreakerTimeoutError(Exception):
     """Exception raised when circuit breaker times out."""
+
     pass
 
 
@@ -243,7 +261,9 @@ class CircuitBreakerManager:
         self.breakers: dict[str, CircuitBreaker] = {}
         self.logger = logger.bind(component="circuit_breaker_manager")
 
-    def get_breaker(self, name: str, config: CircuitBreakerConfig | None = None) -> CircuitBreaker:
+    def get_breaker(
+        self, name: str, config: CircuitBreakerConfig | None = None
+    ) -> CircuitBreaker:
         """Get or create a circuit breaker."""
         if name not in self.breakers:
             self.breakers[name] = CircuitBreaker(name, config)
@@ -274,7 +294,9 @@ class CircuitBreakerManager:
 _circuit_breaker_manager = CircuitBreakerManager()
 
 
-def get_circuit_breaker(name: str, config: CircuitBreakerConfig | None = None) -> CircuitBreaker:
+def get_circuit_breaker(
+    name: str, config: CircuitBreakerConfig | None = None
+) -> CircuitBreaker:
     """Get a circuit breaker instance."""
     return _circuit_breaker_manager.get_breaker(name, config)
 

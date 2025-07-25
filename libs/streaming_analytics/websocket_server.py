@@ -10,7 +10,7 @@ from typing import Any
 from uuid import uuid4
 
 import structlog
-import websockets
+import websockets.legacy.server as websockets_legacy
 from websockets.exceptions import ConnectionClosed, WebSocketException
 from websockets.legacy.server import WebSocketServerProtocol
 
@@ -22,6 +22,7 @@ logger = structlog.get_logger(__name__)
 
 class MessageType(str, Enum):
     """WebSocket message types."""
+
     SUBSCRIBE = "subscribe"
     UNSUBSCRIBE = "unsubscribe"
     DATA = "data"
@@ -35,6 +36,7 @@ class MessageType(str, Enum):
 
 class SubscriptionType(str, Enum):
     """Types of real-time subscriptions."""
+
     EVENTS = "events"
     METRICS = "metrics"
     ALERTS = "alerts"
@@ -46,6 +48,7 @@ class SubscriptionType(str, Enum):
 @dataclass
 class WebSocketMessage:
     """WebSocket message structure."""
+
     type: MessageType
     data: Any = None
     subscription_id: str | None = None
@@ -54,30 +57,35 @@ class WebSocketMessage:
 
     def to_json(self) -> str:
         """Convert message to JSON string."""
-        return json.dumps({
-            'type': self.type.value,
-            'data': self.data,
-            'subscription_id': self.subscription_id,
-            'timestamp': self.timestamp.isoformat(),
-            'metadata': self.metadata
-        })
+        return json.dumps(
+            {
+                "type": self.type.value,
+                "data": self.data,
+                "subscription_id": self.subscription_id,
+                "timestamp": self.timestamp.isoformat(),
+                "metadata": self.metadata,
+            }
+        )
 
     @classmethod
-    def from_json(cls, json_str: str) -> 'WebSocketMessage':
+    def from_json(cls, json_str: str) -> "WebSocketMessage":
         """Create message from JSON string."""
         data = json.loads(json_str)
         return cls(
-            type=MessageType(data['type']),
-            data=data.get('data'),
-            subscription_id=data.get('subscription_id'),
-            timestamp=datetime.fromisoformat(data.get('timestamp', datetime.utcnow().isoformat())),
-            metadata=data.get('metadata', {})
+            type=MessageType(data["type"]),
+            data=data.get("data"),
+            subscription_id=data.get("subscription_id"),
+            timestamp=datetime.fromisoformat(
+                data.get("timestamp", datetime.utcnow().isoformat())
+            ),
+            metadata=data.get("metadata", {}),
         )
 
 
 @dataclass
 class Subscription:
     """Client subscription to real-time data."""
+
     id: str
     client_id: str
     type: SubscriptionType
@@ -96,7 +104,7 @@ class Subscription:
         for filter_key, filter_value in self.filters.items():
             # Support nested field access with dot notation
             value = event_dict
-            for field_part in filter_key.split('.'):
+            for field_part in filter_key.split("."):
                 if isinstance(value, dict) and field_part in value:
                     value = value[field_part]
                 else:
@@ -115,6 +123,7 @@ class Subscription:
 @dataclass
 class WebSocketClient:
     """Connected WebSocket client."""
+
     id: str
     websocket: WebSocketServerProtocol
     subscriptions: dict[str, Subscription] = field(default_factory=dict)
@@ -133,9 +142,9 @@ class WebSocketClient:
             self.message_count += 1
             return True
         except (ConnectionClosed, WebSocketException) as e:
-            logger.debug("Failed to send message to client",
-                        client_id=self.id,
-                        error=str(e))
+            logger.debug(
+                "Failed to send message to client", client_id=self.id, error=str(e)
+            )
             return False
 
     def add_subscription(self, subscription: Subscription) -> None:
@@ -146,9 +155,9 @@ class WebSocketClient:
         """Remove subscription."""
         return self.subscriptions.pop(subscription_id, None) is not None
 
-    def get_matching_subscriptions(self,
-                                  subscription_type: SubscriptionType,
-                                  event: EventSchema | None = None) -> list[Subscription]:
+    def get_matching_subscriptions(
+        self, subscription_type: SubscriptionType, event: EventSchema | None = None
+    ) -> list[Subscription]:
         """Get subscriptions matching type and optional event."""
         matching = []
 
@@ -165,7 +174,9 @@ class WebSocketClient:
         minute_ago = now - timedelta(minutes=1)
 
         # Clean old timestamps
-        self.message_timestamps = [ts for ts in self.message_timestamps if ts > minute_ago]
+        self.message_timestamps = [
+            ts for ts in self.message_timestamps if ts > minute_ago
+        ]
 
         return len(self.message_timestamps) >= rate_limit_per_minute
 
@@ -193,7 +204,7 @@ class WebSocketAuthenticator:
             auth_data = message.data or {}
 
             # Simple token-based authentication
-            token = auth_data.get('token')
+            token = auth_data.get("token")
             if not token:
                 return False
 
@@ -223,7 +234,7 @@ class WebSocketServer:
         self.subscriptions: dict[str, Subscription] = {}
 
         # Server state
-        self.server: websockets.legacy.server.WebSocketServer | None = None
+        self.server: websockets_legacy.WebSocketServer | None = None
         self.is_running = False
 
         # Background tasks
@@ -246,7 +257,7 @@ class WebSocketServer:
     async def start(self) -> None:
         """Start the WebSocket server."""
         try:
-            self.server = await websockets.serve(
+            self.server = await websockets_legacy.serve(
                 self._handle_client,
                 self.config.host,
                 self.config.port,
@@ -254,7 +265,7 @@ class WebSocketServer:
                 ping_timeout=self.config.ping_timeout,
                 close_timeout=self.config.close_timeout,
                 max_size=self.config.max_message_size,
-                compression=self.config.compression
+                compression=self.config.compression,
             )
 
             self.is_running = True
@@ -263,10 +274,12 @@ class WebSocketServer:
             self.ping_task = asyncio.create_task(self._ping_clients())
             self.cleanup_task = asyncio.create_task(self._cleanup_stale_connections())
 
-            self.logger.info("WebSocket server started",
-                           host=self.config.host,
-                           port=self.config.port,
-                           max_connections=self.config.max_connections)
+            self.logger.info(
+                "WebSocket server started",
+                host=self.config.host,
+                port=self.config.port,
+                max_connections=self.config.max_connections,
+            )
 
         except Exception as e:
             self.logger.error("Failed to start WebSocket server", error=str(e))
@@ -295,12 +308,16 @@ class WebSocketServer:
             self.server.close()
             await self.server.wait_closed()
 
-        self.logger.info("WebSocket server stopped",
-                        total_connections=self.total_connections,
-                        messages_sent=self.total_messages_sent,
-                        messages_received=self.total_messages_received)
+        self.logger.info(
+            "WebSocket server stopped",
+            total_connections=self.total_connections,
+            messages_sent=self.total_messages_sent,
+            messages_received=self.total_messages_received,
+        )
 
-    async def _handle_client(self, websocket: WebSocketServerProtocol, path: str) -> None:
+    async def _handle_client(
+        self, websocket: WebSocketServerProtocol, path: str
+    ) -> None:
         """Handle new client connection."""
         client_id = str(uuid4())
 
@@ -308,16 +325,19 @@ class WebSocketServer:
         origin = websocket.request_headers.get("Origin")
         if not self._is_origin_allowed(origin):
             await websocket.close(code=1008, reason="Origin not allowed")
-            self.logger.warning("Connection rejected - invalid origin",
-                              client_id=client_id,
-                              origin=origin)
+            self.logger.warning(
+                "Connection rejected - invalid origin",
+                client_id=client_id,
+                origin=origin,
+            )
             return
 
         # Check connection limit
         if len(self.clients) >= self.config.max_connections:
             await websocket.close(code=1013, reason="Server at capacity")
-            self.logger.warning("Connection rejected - server at capacity",
-                              client_id=client_id)
+            self.logger.warning(
+                "Connection rejected - server at capacity", client_id=client_id
+            )
             return
 
         # Create client
@@ -325,10 +345,12 @@ class WebSocketServer:
         self.clients[client_id] = client
         self.total_connections += 1
 
-        self.logger.info("Client connected",
-                        client_id=client_id,
-                        remote_address=websocket.remote_address,
-                        active_clients=len(self.clients))
+        self.logger.info(
+            "Client connected",
+            client_id=client_id,
+            remote_address=websocket.remote_address,
+            active_clients=len(self.clients),
+        )
 
         try:
             # Handle authentication if required
@@ -341,27 +363,27 @@ class WebSocketServer:
                 client.authenticated = True
 
             # Handle messages
-            async for message_str in websocket:
+            async for message_data in websocket:
                 try:
+                    message_str = message_data if isinstance(message_data, str) else message_data.decode('utf-8')
                     await self._handle_message(client, message_str)
                 except Exception as e:
-                    self.logger.error("Error handling message",
-                                    client_id=client_id,
-                                    error=str(e))
+                    self.logger.error(
+                        "Error handling message", client_id=client_id, error=str(e)
+                    )
 
                     # Send error response
                     error_msg = WebSocketMessage(
-                        type=MessageType.ERROR,
-                        data={'error': str(e)}
+                        type=MessageType.ERROR, data={"error": str(e)}
                     )
                     await client.send_message(error_msg)
 
         except ConnectionClosed:
             self.logger.info("Client disconnected normally", client_id=client_id)
         except Exception as e:
-            self.logger.error("Client connection error",
-                            client_id=client_id,
-                            error=str(e))
+            self.logger.error(
+                "Client connection error", client_id=client_id, error=str(e)
+            )
         finally:
             await self._disconnect_client(client_id, "Connection closed")
 
@@ -370,18 +392,20 @@ class WebSocketServer:
         try:
             # Wait for authentication message
             auth_timeout = self.config.auth_timeout_seconds
-            auth_message = await asyncio.wait_for(
-                client.websocket.recv(),
-                timeout=auth_timeout
+            auth_data = await asyncio.wait_for(
+                client.websocket.recv(), timeout=auth_timeout
             )
-
+            
+            auth_message = auth_data if isinstance(auth_data, str) else auth_data.decode('utf-8')
             message = WebSocketMessage.from_json(auth_message)
 
             if message.type != MessageType.AUTH:
-                await client.send_message(WebSocketMessage(
-                    type=MessageType.AUTH_FAILED,
-                    data={'error': 'Authentication required'}
-                ))
+                await client.send_message(
+                    WebSocketMessage(
+                        type=MessageType.AUTH_FAILED,
+                        data={"error": "Authentication required"},
+                    )
+                )
                 return False
 
             # Authenticate
@@ -389,38 +413,41 @@ class WebSocketServer:
 
             if is_authenticated:
                 client.authenticated = True
-                await client.send_message(WebSocketMessage(
-                    type=MessageType.AUTH_SUCCESS,
-                    data={'client_id': client.id}
-                ))
+                await client.send_message(
+                    WebSocketMessage(
+                        type=MessageType.AUTH_SUCCESS, data={"client_id": client.id}
+                    )
+                )
                 self.logger.info("Client authenticated", client_id=client.id)
                 return True
             else:
-                await client.send_message(WebSocketMessage(
-                    type=MessageType.AUTH_FAILED,
-                    data={'error': 'Invalid credentials'}
-                ))
+                await client.send_message(
+                    WebSocketMessage(
+                        type=MessageType.AUTH_FAILED,
+                        data={"error": "Invalid credentials"},
+                    )
+                )
                 return False
 
         except TimeoutError:
             self.logger.warning("Authentication timeout", client_id=client.id)
             return False
         except Exception as e:
-            self.logger.error("Authentication error",
-                            client_id=client.id,
-                            error=str(e))
+            self.logger.error("Authentication error", client_id=client.id, error=str(e))
             return False
 
     async def _handle_message(self, client: WebSocketClient, message_str: str) -> None:
         """Handle incoming message from client."""
         try:
             # Check rate limiting
-            if (self.config.enable_rate_limiting and
-                client.is_rate_limited(self.config.rate_limit_per_minute)):
-                await client.send_message(WebSocketMessage(
-                    type=MessageType.ERROR,
-                    data={'error': 'Rate limit exceeded'}
-                ))
+            if self.config.enable_rate_limiting and client.is_rate_limited(
+                self.config.rate_limit_per_minute
+            ):
+                await client.send_message(
+                    WebSocketMessage(
+                        type=MessageType.ERROR, data={"error": "Rate limit exceeded"}
+                    )
+                )
                 return
 
             message = WebSocketMessage.from_json(message_str)
@@ -429,10 +456,12 @@ class WebSocketServer:
 
             # Check if client is authenticated for non-auth messages
             if not client.authenticated and message.type != MessageType.AUTH:
-                await client.send_message(WebSocketMessage(
-                    type=MessageType.ERROR,
-                    data={'error': 'Authentication required'}
-                ))
+                await client.send_message(
+                    WebSocketMessage(
+                        type=MessageType.ERROR,
+                        data={"error": "Authentication required"},
+                    )
+                )
                 return
 
             # Handle message
@@ -440,34 +469,40 @@ class WebSocketServer:
             if handler:
                 await handler(client, message)
             else:
-                self.logger.warning("Unknown message type",
-                                  client_id=client.id,
-                                  message_type=message.type)
+                self.logger.warning(
+                    "Unknown message type",
+                    client_id=client.id,
+                    message_type=message.type,
+                )
 
-                await client.send_message(WebSocketMessage(
-                    type=MessageType.ERROR,
-                    data={'error': f'Unknown message type: {message.type}'}
-                ))
+                await client.send_message(
+                    WebSocketMessage(
+                        type=MessageType.ERROR,
+                        data={"error": f"Unknown message type: {message.type}"},
+                    )
+                )
 
         except Exception as e:
-            self.logger.error("Message handling error",
-                            client_id=client.id,
-                            error=str(e))
+            self.logger.error(
+                "Message handling error", client_id=client.id, error=str(e)
+            )
             raise
 
-    async def _handle_subscribe(self, client: WebSocketClient, message: WebSocketMessage) -> None:
+    async def _handle_subscribe(
+        self, client: WebSocketClient, message: WebSocketMessage
+    ) -> None:
         """Handle subscription request."""
         try:
             sub_data = message.data or {}
-            subscription_type = SubscriptionType(sub_data.get('type', 'events'))
-            filters = sub_data.get('filters', {})
+            subscription_type = SubscriptionType(sub_data.get("type", "events"))
+            filters = sub_data.get("filters", {})
 
             # Create subscription
             subscription = Subscription(
                 id=str(uuid4()),
                 client_id=client.id,
                 type=subscription_type,
-                filters=filters
+                filters=filters,
             )
 
             # Add to client and global registry
@@ -475,40 +510,50 @@ class WebSocketServer:
             self.subscriptions[subscription.id] = subscription
 
             # Send confirmation
-            await client.send_message(WebSocketMessage(
-                type=MessageType.DATA,
-                data={
-                    'status': 'subscribed',
-                    'subscription_id': subscription.id,
-                    'type': subscription_type.value
-                },
-                subscription_id=subscription.id
-            ))
+            await client.send_message(
+                WebSocketMessage(
+                    type=MessageType.DATA,
+                    data={
+                        "status": "subscribed",
+                        "subscription_id": subscription.id,
+                        "type": subscription_type.value,
+                    },
+                    subscription_id=subscription.id,
+                )
+            )
 
-            self.logger.info("Client subscribed",
-                           client_id=client.id,
-                           subscription_id=subscription.id,
-                           subscription_type=subscription_type.value,
-                           filters=filters)
+            self.logger.info(
+                "Client subscribed",
+                client_id=client.id,
+                subscription_id=subscription.id,
+                subscription_type=subscription_type.value,
+                filters=filters,
+            )
 
         except Exception as e:
-            await client.send_message(WebSocketMessage(
-                type=MessageType.ERROR,
-                data={'error': f'Subscription failed: {str(e)}'}
-            ))
+            await client.send_message(
+                WebSocketMessage(
+                    type=MessageType.ERROR,
+                    data={"error": f"Subscription failed: {str(e)}"},
+                )
+            )
             raise
 
-    async def _handle_unsubscribe(self, client: WebSocketClient, message: WebSocketMessage) -> None:
+    async def _handle_unsubscribe(
+        self, client: WebSocketClient, message: WebSocketMessage
+    ) -> None:
         """Handle unsubscription request."""
         try:
             sub_data = message.data or {}
-            subscription_id = sub_data.get('subscription_id')
+            subscription_id = sub_data.get("subscription_id")
 
             if not subscription_id:
-                await client.send_message(WebSocketMessage(
-                    type=MessageType.ERROR,
-                    data={'error': 'subscription_id required'}
-                ))
+                await client.send_message(
+                    WebSocketMessage(
+                        type=MessageType.ERROR,
+                        data={"error": "subscription_id required"},
+                    )
+                )
                 return
 
             # Remove subscription
@@ -516,33 +561,47 @@ class WebSocketServer:
             if removed:
                 self.subscriptions.pop(subscription_id, None)
 
-                await client.send_message(WebSocketMessage(
-                    type=MessageType.DATA,
-                    data={'status': 'unsubscribed', 'subscription_id': subscription_id}
-                ))
+                await client.send_message(
+                    WebSocketMessage(
+                        type=MessageType.DATA,
+                        data={
+                            "status": "unsubscribed",
+                            "subscription_id": subscription_id,
+                        },
+                    )
+                )
 
-                self.logger.info("Client unsubscribed",
-                               client_id=client.id,
-                               subscription_id=subscription_id)
+                self.logger.info(
+                    "Client unsubscribed",
+                    client_id=client.id,
+                    subscription_id=subscription_id,
+                )
             else:
-                await client.send_message(WebSocketMessage(
-                    type=MessageType.ERROR,
-                    data={'error': 'Subscription not found'}
-                ))
+                await client.send_message(
+                    WebSocketMessage(
+                        type=MessageType.ERROR, data={"error": "Subscription not found"}
+                    )
+                )
 
         except Exception as e:
-            await client.send_message(WebSocketMessage(
-                type=MessageType.ERROR,
-                data={'error': f'Unsubscription failed: {str(e)}'}
-            ))
+            await client.send_message(
+                WebSocketMessage(
+                    type=MessageType.ERROR,
+                    data={"error": f"Unsubscription failed: {str(e)}"},
+                )
+            )
             raise
 
-    async def _handle_ping(self, client: WebSocketClient, message: WebSocketMessage) -> None:
+    async def _handle_ping(
+        self, client: WebSocketClient, message: WebSocketMessage
+    ) -> None:
         """Handle ping message."""
         client.last_ping = datetime.utcnow()
         await client.send_message(WebSocketMessage(type=MessageType.PONG))
 
-    async def _handle_auth(self, client: WebSocketClient, message: WebSocketMessage) -> None:
+    async def _handle_auth(
+        self, client: WebSocketClient, message: WebSocketMessage
+    ) -> None:
         """Handle authentication message."""
         # Authentication is handled in _authenticate_client
         # This handler is for re-authentication if needed
@@ -550,15 +609,17 @@ class WebSocketServer:
 
         if is_authenticated:
             client.authenticated = True
-            await client.send_message(WebSocketMessage(
-                type=MessageType.AUTH_SUCCESS,
-                data={'client_id': client.id}
-            ))
+            await client.send_message(
+                WebSocketMessage(
+                    type=MessageType.AUTH_SUCCESS, data={"client_id": client.id}
+                )
+            )
         else:
-            await client.send_message(WebSocketMessage(
-                type=MessageType.AUTH_FAILED,
-                data={'error': 'Invalid credentials'}
-            ))
+            await client.send_message(
+                WebSocketMessage(
+                    type=MessageType.AUTH_FAILED, data={"error": "Invalid credentials"}
+                )
+            )
 
     async def _disconnect_client(self, client_id: str, reason: str) -> None:
         """Disconnect and cleanup client."""
@@ -575,15 +636,19 @@ class WebSocketServer:
             try:
                 await client.websocket.close(reason=reason)
             except Exception as e:
-                self.logger.debug("Error closing websocket",
-                                client_id=client_id,
-                                error=str(e))
+                self.logger.debug(
+                    "Error closing websocket", client_id=client_id, error=str(e)
+                )
 
-        self.logger.info("Client disconnected",
-                        client_id=client_id,
-                        reason=reason,
-                        active_clients=len(self.clients),
-                        session_duration_seconds=(datetime.utcnow() - client.connected_at).total_seconds())
+        self.logger.info(
+            "Client disconnected",
+            client_id=client_id,
+            reason=reason,
+            active_clients=len(self.clients),
+            session_duration_seconds=(
+                datetime.utcnow() - client.connected_at
+            ).total_seconds(),
+        )
 
     async def _ping_clients(self) -> None:
         """Periodically ping clients to keep connections alive."""
@@ -618,7 +683,9 @@ class WebSocketServer:
                 for client_id, client in self.clients.items():
                     # Check if client hasn't pinged recently
                     time_since_ping = (current_time - client.last_ping).total_seconds()
-                    if time_since_ping > (self.config.ping_timeout * 3):  # 3x timeout grace period
+                    if time_since_ping > (
+                        self.config.ping_timeout * 3
+                    ):  # 3x timeout grace period
                         stale_clients.append(client_id)
 
                 # Disconnect stale clients
@@ -658,18 +725,14 @@ class WebSocketServer:
 
             # Find matching subscriptions
             matching_subs = client.get_matching_subscriptions(
-                SubscriptionType.EVENTS,
-                event
+                SubscriptionType.EVENTS, event
             )
 
             for subscription in matching_subs:
                 message = WebSocketMessage(
                     type=MessageType.DATA,
-                    data={
-                        'event': event.model_dump(),
-                        'subscription_type': 'events'
-                    },
-                    subscription_id=subscription.id
+                    data={"event": event.model_dump(), "subscription_type": "events"},
+                    subscription_id=subscription.id,
                 )
 
                 task = client.send_message(message)
@@ -701,11 +764,8 @@ class WebSocketServer:
             for subscription in matching_subs:
                 message = WebSocketMessage(
                     type=MessageType.DATA,
-                    data={
-                        'metrics': metrics,
-                        'subscription_type': 'metrics'
-                    },
-                    subscription_id=subscription.id
+                    data={"metrics": metrics, "subscription_type": "metrics"},
+                    subscription_id=subscription.id,
                 )
 
                 task = client.send_message(message)
@@ -736,11 +796,8 @@ class WebSocketServer:
             for subscription in matching_subs:
                 message = WebSocketMessage(
                     type=MessageType.DATA,
-                    data={
-                        'alert': alert,
-                        'subscription_type': 'alerts'
-                    },
-                    subscription_id=subscription.id
+                    data={"alert": alert, "subscription_type": "alerts"},
+                    subscription_id=subscription.id,
                 )
 
                 task = client.send_message(message)
@@ -768,18 +825,18 @@ class WebSocketServer:
     def get_stats(self) -> dict[str, Any]:
         """Get WebSocket server statistics."""
         return {
-            'is_running': self.is_running,
-            'active_clients': len(self.clients),
-            'total_connections': self.total_connections,
-            'total_subscriptions': len(self.subscriptions),
-            'messages_sent': self.total_messages_sent,
-            'messages_received': self.total_messages_received,
-            'config': {
-                'host': self.config.host,
-                'port': self.config.port,
-                'max_connections': self.config.max_connections,
-                'require_auth': self.config.require_auth
-            }
+            "is_running": self.is_running,
+            "active_clients": len(self.clients),
+            "total_connections": self.total_connections,
+            "total_subscriptions": len(self.subscriptions),
+            "messages_sent": self.total_messages_sent,
+            "messages_received": self.total_messages_received,
+            "config": {
+                "host": self.config.host,
+                "port": self.config.port,
+                "max_connections": self.config.max_connections,
+                "require_auth": self.config.require_auth,
+            },
         }
 
 
@@ -805,4 +862,3 @@ async def shutdown_websocket_server() -> None:
     if _websocket_server:
         await _websocket_server.stop()
         _websocket_server = None
-
