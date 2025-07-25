@@ -395,7 +395,7 @@ class StreamAggregator:
             if aggregation_type == AggregationType.COUNT:
                 result_value = len(window.events)
             elif aggregation_type == AggregationType.SUM:
-                numeric_values = [v for v in values if isinstance(v, (int, float))]
+                numeric_values: list[float] = [float(v) for v in values if isinstance(v, (int, float))]
                 result_value = sum(numeric_values) if numeric_values else 0
             elif aggregation_type == AggregationType.AVG:
                 numeric_values = [v for v in values if isinstance(v, (int, float))]

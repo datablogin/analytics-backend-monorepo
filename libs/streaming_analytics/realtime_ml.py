@@ -431,7 +431,10 @@ class RealtimeMLInferenceEngine:
                         error_message=f"Model {request.model_name} not found",
                     )
 
-                model = model_version.model_artifact
+                # Load the actual model using MLflow
+                import mlflow.pyfunc
+                model_uri = f"models:/{model_version.name}/{model_version.version}"
+                model = mlflow.pyfunc.load_model(model_uri)
                 self.model_cache.put_model(model_key, model)
 
             # Prepare features
@@ -527,9 +530,9 @@ class RealtimeMLInferenceEngine:
         """Load model from registry."""
         try:
             if model_version:
-                return await self.model_registry.get_model(model_name, model_version)
+                return self.model_registry.get_model_version(model_name, model_version)
             else:
-                return await self.model_registry.get_latest_model_version(model_name)
+                return self.model_registry.get_latest_model_version(model_name)
         except Exception as e:
             self.logger.error(
                 "Failed to load model",
@@ -646,7 +649,10 @@ class RealtimeMLInferenceEngine:
                         )
                     return results
 
-                model = model_version_obj.model_artifact
+                # Load the actual model using MLflow
+                import mlflow.pyfunc
+                model_uri = f"models:/{model_version_obj.name}/{model_version_obj.version}"
+                model = mlflow.pyfunc.load_model(model_uri)
                 self.model_cache.put_model(model_key, model)
 
             # Prepare batch features
