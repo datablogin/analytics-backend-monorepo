@@ -689,7 +689,9 @@ class AutoScaler:
             for handler in self.scale_handlers:
                 try:
                     if asyncio.iscoroutinefunction(handler):
-                        result_coro = handler(action["action"], old_instances, new_instances)
+                        result_coro = handler(
+                            action["action"], old_instances, new_instances
+                        )
                         if result_coro is not None:
                             await result_coro
                     else:

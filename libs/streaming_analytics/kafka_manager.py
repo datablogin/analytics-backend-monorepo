@@ -239,7 +239,14 @@ class KafkaProducerManager:
                 "successful": 0,
                 "failed": len(events),
                 "successful_events": [],
-                "failed_events": [{"index": i, "event_id": f"event_{i}", "error": "Producer not running"} for i in range(len(events))],
+                "failed_events": [
+                    {
+                        "index": i,
+                        "event_id": f"event_{i}",
+                        "error": "Producer not running",
+                    }
+                    for i in range(len(events))
+                ],
                 "duration_seconds": 0.0,
             }
 

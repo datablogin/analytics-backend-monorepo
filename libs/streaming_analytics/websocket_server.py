@@ -365,7 +365,11 @@ class WebSocketServer:
             # Handle messages
             async for message_data in websocket:
                 try:
-                    message_str = message_data if isinstance(message_data, str) else message_data.decode('utf-8')
+                    message_str = (
+                        message_data
+                        if isinstance(message_data, str)
+                        else message_data.decode("utf-8")
+                    )
                     await self._handle_message(client, message_str)
                 except Exception as e:
                     self.logger.error(
@@ -396,7 +400,9 @@ class WebSocketServer:
                 client.websocket.recv(), timeout=auth_timeout
             )
 
-            auth_message = auth_data if isinstance(auth_data, str) else auth_data.decode('utf-8')
+            auth_message = (
+                auth_data if isinstance(auth_data, str) else auth_data.decode("utf-8")
+            )
             message = WebSocketMessage.from_json(auth_message)
 
             if message.type != MessageType.AUTH:
