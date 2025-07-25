@@ -395,7 +395,7 @@ class WebSocketServer:
             auth_data = await asyncio.wait_for(
                 client.websocket.recv(), timeout=auth_timeout
             )
-            
+
             auth_message = auth_data if isinstance(auth_data, str) else auth_data.decode('utf-8')
             message = WebSocketMessage.from_json(auth_message)
 

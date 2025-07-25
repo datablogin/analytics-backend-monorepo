@@ -69,7 +69,7 @@ class KafkaTopicManager:
                             "Failed to create topic", topic=topic, error=str(e)
                         )
                         return False
-            
+
             return False  # If no topics were processed
 
         except Exception as e:
@@ -102,7 +102,7 @@ class KafkaTopicManager:
                         "Failed to delete topic", topic=topic, error=str(e)
                     )
                     return False
-            
+
             return False  # If no topics were processed
 
         except Exception as e:
