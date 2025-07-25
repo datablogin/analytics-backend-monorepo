@@ -703,7 +703,9 @@ class KafkaManager:
             else:
                 return {"partition_count": 0, "partitions": {}}
         except Exception as e:
-            self.logger.error("Failed to get topic metadata", topic=topic_name, error=str(e))
+            self.logger.error(
+                "Failed to get topic metadata", topic=topic_name, error=str(e)
+            )
             return {"partition_count": 0, "partitions": {}}
 
     # Event production methods
@@ -712,12 +714,15 @@ class KafkaManager:
         producer = await self.get_producer()
         # For integration tests, we need to create an EventSchema from dict
         from .event_store import get_event_store
+
         event_store = get_event_store()
         # Convert dict to EventSchema for compatibility
         event_schema = event_store.validate_event(event)
         await producer.send_event(topic, event_schema)
 
-    async def create_consumer(self, topics: list[str], group_id: str) -> KafkaConsumerManager:
+    async def create_consumer(
+        self, topics: list[str], group_id: str
+    ) -> KafkaConsumerManager:
         """Create a consumer for the given topics and group."""
         return await self.get_consumer(group_id, topics)
 
