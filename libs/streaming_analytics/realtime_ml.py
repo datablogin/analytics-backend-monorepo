@@ -433,6 +433,7 @@ class RealtimeMLInferenceEngine:
 
                 # Load the actual model using MLflow
                 import mlflow.pyfunc
+
                 model_uri = f"models:/{model_version.name}/{model_version.version}"
                 model = mlflow.pyfunc.load_model(model_uri)
                 self.model_cache.put_model(model_key, model)
@@ -651,7 +652,10 @@ class RealtimeMLInferenceEngine:
 
                 # Load the actual model using MLflow
                 import mlflow.pyfunc
-                model_uri = f"models:/{model_version_obj.name}/{model_version_obj.version}"
+
+                model_uri = (
+                    f"models:/{model_version_obj.name}/{model_version_obj.version}"
+                )
                 model = mlflow.pyfunc.load_model(model_uri)
                 self.model_cache.put_model(model_key, model)
 
