@@ -118,6 +118,7 @@
 - Include comprehensive test coverage
 - Ensure all CI/CD checks pass
 - Request review from appropriate team members
+- **IMPORTANT**: Always include the Issue Number in the title of the PR you create and push to github
 
 ### GitHub Issue Linking Rules
 **CRITICAL**: Every PR must include proper GitHub linking syntax to automatically close related issues:
