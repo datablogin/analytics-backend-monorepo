@@ -554,22 +554,45 @@ class AutoScaler:
             (current_time - self.last_scale_action).total_seconds() < self.config.cooldown_period_seconds):
             return None
 
-        # Get key metrics for scaling decisions
+        # Get comprehensive metrics for scaling decisions
         throughput = metrics.get('throughput_events_per_second', 0)
         cpu_usage = metrics.get('cpu_usage_percent', 0) / 100  # Convert to 0-1
+        memory_usage = metrics.get('memory_usage_bytes', 0) / (8 * 1024**3)  # Normalize to 8GB
         error_rate = metrics.get('error_rate', 0)
+        kafka_lag = metrics.get('kafka_consumer_lag', 0)
+        queue_depth = metrics.get('queue_depth', 0)
 
-        # Calculate utilization score
-        utilization_score = max(cpu_usage, throughput / 1000)  # Normalize throughput
+        # Advanced utilization score with multiple factors
+        base_utilization = max(cpu_usage, memory_usage)
+        throughput_pressure = min(throughput / 10000, 1.0)  # Normalize to 10K events/sec
+        lag_pressure = min(kafka_lag / 1000, 1.0)  # Normalize to 1K message lag
+        queue_pressure = min(queue_depth / 100, 1.0)  # Normalize to 100 queued items
+
+        # Weighted composite score
+        utilization_score = (
+            base_utilization * 0.4 +  # Resource usage (40%)
+            throughput_pressure * 0.3 +  # Throughput pressure (30%)
+            lag_pressure * 0.2 +  # Kafka lag (20%)
+            queue_pressure * 0.1  # Queue depth (10%)
+        )
+
+        # Calculate scaling velocity based on urgency
+        urgency_multiplier = 1.0
+        if error_rate > 0.05:  # 5% error rate
+            urgency_multiplier = 2.0
+        elif utilization_score > 0.9:  # Very high utilization
+            urgency_multiplier = 1.5
 
         scale_action = None
 
-        # Check scale up conditions
+        # Check scale up conditions with improved logic
         if (utilization_score > self.config.scale_up_threshold and
             self.current_instances < self.config.max_instances):
 
+            # Aggressive scaling for high urgency
+            scale_amount = max(1, int(urgency_multiplier))
             new_instances = min(
-                self.current_instances + 1,
+                self.current_instances + scale_amount,
                 self.config.max_instances
             )
 

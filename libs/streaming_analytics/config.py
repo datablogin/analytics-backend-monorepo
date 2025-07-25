@@ -40,6 +40,10 @@ class KafkaConfig(BaseModel):
         "fetch_max_wait_ms": 500,
     })
 
+    # Dead letter queue configuration
+    enable_dead_letter_queue: bool = Field(default=True)
+    dead_letter_topic_suffix: str = Field(default=".dlq")
+
 
 class StreamProcessingConfig(BaseModel):
     """Stream processing configuration."""
@@ -62,6 +66,10 @@ class StreamProcessingConfig(BaseModel):
     # Error handling
     retry_attempts: int = Field(default=3)
     retry_backoff_ms: int = Field(default=1000)
+
+    # Dead letter queue configuration
+    enable_dead_letter_queue: bool = Field(default=True)
+    dead_letter_topic_suffix: str = Field(default=".dlq")
     dead_letter_topic: str | None = Field(default="dead-letter-queue")
 
 
@@ -82,6 +90,17 @@ class WebSocketConfig(BaseModel):
     # Authentication
     require_auth: bool = Field(default=True)
     auth_timeout_seconds: int = Field(default=30)
+
+    # Security
+    allowed_origins: list[str] = Field(default_factory=lambda: ["*"])
+    enable_rate_limiting: bool = Field(default=True)
+    rate_limit_per_minute: int = Field(default=60)
+
+    # SSL/TLS
+    use_ssl: bool = Field(default=False)
+    ssl_cert_path: str | None = Field(default=None)
+    ssl_key_path: str | None = Field(default=None)
+    ssl_ca_path: str | None = Field(default=None)
 
 
 class RealtimeMLConfig(BaseModel):

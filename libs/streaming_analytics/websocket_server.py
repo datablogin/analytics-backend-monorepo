@@ -4,7 +4,7 @@ import asyncio
 import json
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timedelta
 from enum import Enum
 from typing import Any
 from uuid import uuid4
@@ -122,6 +122,9 @@ class WebSocketClient:
     connected_at: datetime = field(default_factory=datetime.utcnow)
     last_ping: datetime = field(default_factory=datetime.utcnow)
     message_count: int = 0
+    last_message_time: datetime = field(default_factory=datetime.utcnow)
+    message_timestamps: list[datetime] = field(default_factory=list)
+    origin: str | None = None
 
     async def send_message(self, message: WebSocketMessage) -> bool:
         """Send message to client."""
@@ -155,6 +158,23 @@ class WebSocketClient:
                     matching.append(subscription)
 
         return matching
+
+    def is_rate_limited(self, rate_limit_per_minute: int) -> bool:
+        """Check if client is being rate limited."""
+        now = datetime.utcnow()
+        minute_ago = now - timedelta(minutes=1)
+
+        # Clean old timestamps
+        self.message_timestamps = [ts for ts in self.message_timestamps if ts > minute_ago]
+
+        return len(self.message_timestamps) >= rate_limit_per_minute
+
+    def record_message(self) -> None:
+        """Record a new message for rate limiting."""
+        now = datetime.utcnow()
+        self.last_message_time = now
+        self.message_timestamps.append(now)
+        self.message_count += 1
 
 
 class WebSocketAuthenticator:
@@ -284,6 +304,15 @@ class WebSocketServer:
         """Handle new client connection."""
         client_id = str(uuid4())
 
+        # Validate origin if configured
+        origin = websocket.request_headers.get("Origin")
+        if not self._is_origin_allowed(origin):
+            await websocket.close(code=1008, reason="Origin not allowed")
+            self.logger.warning("Connection rejected - invalid origin",
+                              client_id=client_id,
+                              origin=origin)
+            return
+
         # Check connection limit
         if len(self.clients) >= self.config.max_connections:
             await websocket.close(code=1013, reason="Server at capacity")
@@ -292,7 +321,7 @@ class WebSocketServer:
             return
 
         # Create client
-        client = WebSocketClient(id=client_id, websocket=websocket)
+        client = WebSocketClient(id=client_id, websocket=websocket, origin=origin)
         self.clients[client_id] = client
         self.total_connections += 1
 
@@ -385,7 +414,17 @@ class WebSocketServer:
     async def _handle_message(self, client: WebSocketClient, message_str: str) -> None:
         """Handle incoming message from client."""
         try:
+            # Check rate limiting
+            if (self.config.enable_rate_limiting and
+                client.is_rate_limited(self.config.rate_limit_per_minute)):
+                await client.send_message(WebSocketMessage(
+                    type=MessageType.ERROR,
+                    data={'error': 'Rate limit exceeded'}
+                ))
+                return
+
             message = WebSocketMessage.from_json(message_str)
+            client.record_message()
             self.total_messages_received += 1
 
             # Check if client is authenticated for non-auth messages
@@ -714,6 +753,17 @@ class WebSocketServer:
             self.total_messages_sent += sent_count
 
         return sent_count
+
+    def _is_origin_allowed(self, origin: str | None) -> bool:
+        """Check if the origin is allowed to connect."""
+        if not origin:
+            return True  # Allow connections without origin header
+
+        # Check against allowed origins list
+        if "*" in self.config.allowed_origins:
+            return True
+
+        return origin in self.config.allowed_origins
 
     def get_stats(self) -> dict[str, Any]:
         """Get WebSocket server statistics."""

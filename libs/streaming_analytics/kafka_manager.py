@@ -205,7 +205,7 @@ class KafkaProducerManager:
     async def send_batch(self,
                         topic: str,
                         events: list[EventSchema],
-                        partition: int | None = None) -> int:
+                        partition: int | None = None) -> dict[str, Any]:
         """Send multiple events as a batch."""
         if not self._is_running or not self.producer:
             self.logger.error("Producer not running")
@@ -223,15 +223,52 @@ class KafkaProducerManager:
 
             results = await asyncio.gather(*tasks, return_exceptions=True)
 
-            # Count successful sends
-            sent_count = sum(1 for result in results if result is True)
+            # Track partial success with detailed results
+            successful_results = []
+            failed_results = []
+
+            for i, result in enumerate(results):
+                if isinstance(result, Exception):
+                    failed_results.append({
+                        'index': i,
+                        'event_id': events[i].event_id if hasattr(events[i], 'event_id') else f'event_{i}',
+                        'error': str(result)
+                    })
+                elif result is True:
+                    successful_results.append({
+                        'index': i,
+                        'event_id': events[i].event_id if hasattr(events[i], 'event_id') else f'event_{i}'
+                    })
+
+            sent_count = len(successful_results)
+            failed_count = len(failed_results)
 
             batch_duration = time.time() - batch_start
-            self.logger.info("Batch send completed",
-                           topic=topic,
-                           total_events=len(events),
-                           sent_count=sent_count,
-                           duration_seconds=batch_duration)
+
+            if failed_count > 0:
+                self.logger.warning("Batch send partially failed",
+                                  topic=topic,
+                                  total_events=len(events),
+                                  sent_count=sent_count,
+                                  failed_count=failed_count,
+                                  duration_seconds=batch_duration,
+                                  failed_events=[r['event_id'] for r in failed_results[:5]])  # Log first 5 failures
+            else:
+                self.logger.info("Batch send completed successfully",
+                               topic=topic,
+                               total_events=len(events),
+                               sent_count=sent_count,
+                               duration_seconds=batch_duration)
+
+            # Return detailed results for caller
+            return {
+                'total': len(events),
+                'successful': sent_count,
+                'failed': failed_count,
+                'successful_events': successful_results,
+                'failed_events': failed_results,
+                'duration_seconds': batch_duration
+            }
 
         except Exception as e:
             self.logger.error("Batch send failed",
@@ -239,7 +276,7 @@ class KafkaProducerManager:
                             total_events=len(events),
                             error=str(e))
 
-        return sent_count
+        return {'successful': sent_count, 'failed': 0, 'total': len(events)}
 
     def get_stats(self) -> dict[str, Any]:
         """Get producer statistics."""
@@ -376,6 +413,9 @@ class KafkaConsumerManager:
                                     offset=message.offset,
                                     error=str(e))
 
+                    # Send to dead letter queue if configured
+                    await self._send_to_dead_letter_queue(message, str(e))
+
         except Exception as e:
             self.logger.error("Consumer loop error", error=str(e))
             raise
@@ -416,6 +456,44 @@ class KafkaConsumerManager:
                 self.logger.error("Error in event handlers",
                                 event_type=event_type,
                                 error=str(e))
+
+    async def _send_to_dead_letter_queue(self, original_message: Any, error_msg: str) -> None:
+        """Send failed message to dead letter queue."""
+        if not hasattr(self, 'config') or not self.config.enable_dead_letter_queue:
+            return
+
+        try:
+            # Get the producer from the manager
+            if hasattr(self, 'kafka_manager') and self.kafka_manager:
+                producer = await self.kafka_manager.get_producer("dlq_producer")
+
+                # Create dead letter topic name
+                dlq_topic = f"{original_message.topic}{self.config.dead_letter_topic_suffix}"
+
+                # Create dead letter message with error metadata
+                dlq_message = {
+                    'original_topic': original_message.topic,
+                    'original_partition': original_message.partition,
+                    'original_offset': original_message.offset,
+                    'original_timestamp': original_message.timestamp,
+                    'original_value': original_message.value.decode('utf-8') if original_message.value else None,
+                    'error_message': error_msg,
+                    'error_timestamp': time.time(),
+                    'consumer_group': self.group_id
+                }
+
+                # Send to dead letter queue
+                await producer.send_json(dlq_topic, dlq_message)
+
+                self.logger.info("Message sent to dead letter queue",
+                               original_topic=original_message.topic,
+                               dlq_topic=dlq_topic,
+                               error=error_msg)
+
+        except Exception as e:
+            self.logger.error("Failed to send message to dead letter queue",
+                            original_topic=getattr(original_message, 'topic', 'unknown'),
+                            error=str(e))
 
     def get_stats(self) -> dict[str, Any]:
         """Get consumer statistics."""
