@@ -1,0 +1,26 @@
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
+    gcc \
+    g++ \
+    librdkafka-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy requirements
+COPY docker/test-requirements.txt .
+RUN pip install --no-cache-dir -r test-requirements.txt
+
+# Copy test client source
+COPY tests/integration/ ./tests/integration/
+COPY libs/ ./libs/
+
+# Create test client script
+RUN echo '#!/bin/bash\n\
+echo "Starting WebSocket test client..."\n\
+python tests/integration/websocket_test_client.py\n\
+' > start_client.sh && chmod +x start_client.sh
+
+CMD ["./start_client.sh"]
