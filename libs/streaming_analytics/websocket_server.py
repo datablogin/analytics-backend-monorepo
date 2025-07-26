@@ -14,6 +14,7 @@ import websockets.legacy.server as websockets_legacy
 from websockets.exceptions import ConnectionClosed, WebSocketException
 from websockets.legacy.server import WebSocketServerProtocol
 
+from ..analytics_core.auth import AuthService, TokenData
 from .config import WebSocketConfig, get_streaming_config
 from .event_store import EventSchema
 
@@ -135,6 +136,12 @@ class WebSocketClient:
     message_timestamps: list[datetime] = field(default_factory=list)
     origin: str | None = None
 
+    # Security enhancements
+    token_data: TokenData | None = None
+    user_id: int | None = None
+    permissions: list[str] = field(default_factory=list)
+    audit_session_id: str = field(default_factory=lambda: str(uuid4()))
+
     async def send_message(self, message: WebSocketMessage) -> bool:
         """Send message to client."""
         try:
@@ -189,36 +196,67 @@ class WebSocketClient:
 
 
 class WebSocketAuthenticator:
-    """Handles WebSocket authentication."""
+    """Handles WebSocket authentication using JWT tokens."""
 
     def __init__(self, config: WebSocketConfig):
         self.config = config
         self.logger = logger.bind(component="websocket_auth")
 
-    async def authenticate(self, message: WebSocketMessage) -> bool:
-        """Authenticate client based on message data."""
+    async def authenticate(
+        self, message: WebSocketMessage
+    ) -> tuple[bool, TokenData | None]:
+        """Authenticate client based on JWT token in message data."""
         if not self.config.require_auth:
-            return True
+            return True, None
 
         try:
             auth_data = message.data or {}
 
-            # Simple token-based authentication
+            # Extract JWT token
             token = auth_data.get("token")
             if not token:
-                return False
+                self.logger.warning("Authentication failed - no token provided")
+                return False, None
 
-            # In a real implementation, you would validate the token
-            # against your authentication system
-            if token == "valid_token":  # Simplified for demo
-                return True
-
-            self.logger.warning("Authentication failed", token=token[:10] + "...")
-            return False
+            # Validate JWT token using the analytics_core auth service
+            try:
+                token_data = await AuthService.verify_token(token)
+                self.logger.info(
+                    "WebSocket authentication successful",
+                    user_id=token_data.user_id,
+                    permissions_count=len(token_data.permissions),
+                )
+                return True, token_data
+            except Exception as token_error:
+                self.logger.warning(
+                    "JWT token validation failed",
+                    token=token[:20] + "..." if len(token) > 20 else token,
+                    error=str(token_error),
+                )
+                return False, None
 
         except Exception as e:
             self.logger.error("Authentication error", error=str(e))
+            return False, None
+
+    def check_permissions(
+        self, token_data: TokenData | None, required_permissions: list[str]
+    ) -> bool:
+        """Check if user has required permissions for operation."""
+        if not token_data:
             return False
+
+        # Check if user has all required permissions
+        for permission in required_permissions:
+            if permission not in token_data.permissions:
+                self.logger.warning(
+                    "Permission denied",
+                    user_id=token_data.user_id,
+                    required_permission=permission,
+                    user_permissions=token_data.permissions,
+                )
+                return False
+        return True
 
 
 class WebSocketServer:
@@ -392,7 +430,7 @@ class WebSocketServer:
             await self._disconnect_client(client_id, "Connection closed")
 
     async def _authenticate_client(self, client: WebSocketClient) -> bool:
-        """Authenticate a client connection."""
+        """Authenticate a client connection using JWT tokens."""
         try:
             # Wait for authentication message
             auth_timeout = self.config.auth_timeout_seconds
@@ -412,19 +450,54 @@ class WebSocketServer:
                         data={"error": "Authentication required"},
                     )
                 )
+                self._audit_log(
+                    "authentication_failed",
+                    {
+                        "client_id": client.id,
+                        "reason": "no_auth_message",
+                        "remote_address": client.websocket.remote_address,
+                    },
+                )
                 return False
 
-            # Authenticate
-            is_authenticated = await self.authenticator.authenticate(message)
+            # Authenticate using JWT
+            is_authenticated, token_data = await self.authenticator.authenticate(
+                message
+            )
 
-            if is_authenticated:
+            if is_authenticated and token_data:
                 client.authenticated = True
+                client.token_data = token_data
+                client.user_id = token_data.user_id
+                client.permissions = token_data.permissions
+
                 await client.send_message(
                     WebSocketMessage(
-                        type=MessageType.AUTH_SUCCESS, data={"client_id": client.id}
+                        type=MessageType.AUTH_SUCCESS,
+                        data={
+                            "client_id": client.id,
+                            "user_id": token_data.user_id,
+                            "session_id": client.audit_session_id,
+                        },
                     )
                 )
-                self.logger.info("Client authenticated", client_id=client.id)
+
+                self._audit_log(
+                    "authentication_success",
+                    {
+                        "client_id": client.id,
+                        "user_id": token_data.user_id,
+                        "session_id": client.audit_session_id,
+                        "permissions": token_data.permissions,
+                        "remote_address": client.websocket.remote_address,
+                    },
+                )
+                self.logger.info(
+                    "Client authenticated",
+                    client_id=client.id,
+                    user_id=token_data.user_id,
+                    session_id=client.audit_session_id,
+                )
                 return True
             else:
                 await client.send_message(
@@ -433,13 +506,36 @@ class WebSocketServer:
                         data={"error": "Invalid credentials"},
                     )
                 )
+                self._audit_log(
+                    "authentication_failed",
+                    {
+                        "client_id": client.id,
+                        "reason": "invalid_credentials",
+                        "remote_address": client.websocket.remote_address,
+                    },
+                )
                 return False
 
         except TimeoutError:
             self.logger.warning("Authentication timeout", client_id=client.id)
+            self._audit_log(
+                "authentication_timeout",
+                {
+                    "client_id": client.id,
+                    "remote_address": client.websocket.remote_address,
+                },
+            )
             return False
         except Exception as e:
             self.logger.error("Authentication error", client_id=client.id, error=str(e))
+            self._audit_log(
+                "authentication_error",
+                {
+                    "client_id": client.id,
+                    "error": str(e),
+                    "remote_address": client.websocket.remote_address,
+                },
+            )
             return False
 
     async def _handle_message(self, client: WebSocketClient, message_str: str) -> None:
@@ -497,11 +593,39 @@ class WebSocketServer:
     async def _handle_subscribe(
         self, client: WebSocketClient, message: WebSocketMessage
     ) -> None:
-        """Handle subscription request."""
+        """Handle subscription request with permission checks."""
         try:
             sub_data = message.data or {}
             subscription_type = SubscriptionType(sub_data.get("type", "events"))
             filters = sub_data.get("filters", {})
+
+            # Check permissions for subscription type
+            required_permissions = self._get_subscription_permissions(subscription_type)
+            if required_permissions and not self.authenticator.check_permissions(
+                client.token_data, required_permissions
+            ):
+                await client.send_message(
+                    WebSocketMessage(
+                        type=MessageType.ERROR,
+                        data={
+                            "error": f"Insufficient permissions for subscription type: {subscription_type.value}",
+                            "required_permissions": required_permissions,
+                        },
+                    )
+                )
+
+                self._audit_log(
+                    "subscription_permission_denied",
+                    {
+                        "client_id": client.id,
+                        "user_id": client.user_id,
+                        "session_id": client.audit_session_id,
+                        "subscription_type": subscription_type.value,
+                        "required_permissions": required_permissions,
+                        "user_permissions": client.permissions,
+                    },
+                )
+                return
 
             # Create subscription
             subscription = Subscription(
@@ -528,9 +652,22 @@ class WebSocketServer:
                 )
             )
 
+            self._audit_log(
+                "subscription_created",
+                {
+                    "client_id": client.id,
+                    "user_id": client.user_id,
+                    "session_id": client.audit_session_id,
+                    "subscription_id": subscription.id,
+                    "subscription_type": subscription_type.value,
+                    "filters": filters,
+                },
+            )
+
             self.logger.info(
                 "Client subscribed",
                 client_id=client.id,
+                user_id=client.user_id,
                 subscription_id=subscription.id,
                 subscription_type=subscription_type.value,
                 filters=filters,
@@ -542,6 +679,16 @@ class WebSocketServer:
                     type=MessageType.ERROR,
                     data={"error": f"Subscription failed: {str(e)}"},
                 )
+            )
+
+            self._audit_log(
+                "subscription_error",
+                {
+                    "client_id": client.id,
+                    "user_id": client.user_id,
+                    "session_id": client.audit_session_id,
+                    "error": str(e),
+                },
             )
             raise
 
@@ -608,17 +755,39 @@ class WebSocketServer:
     async def _handle_auth(
         self, client: WebSocketClient, message: WebSocketMessage
     ) -> None:
-        """Handle authentication message."""
+        """Handle re-authentication message."""
         # Authentication is handled in _authenticate_client
         # This handler is for re-authentication if needed
-        is_authenticated = await self.authenticator.authenticate(message)
+        is_authenticated, token_data = await self.authenticator.authenticate(message)
 
-        if is_authenticated:
+        if is_authenticated and token_data:
+            # Update client authentication data
+            old_user_id = client.user_id
             client.authenticated = True
+            client.token_data = token_data
+            client.user_id = token_data.user_id
+            client.permissions = token_data.permissions
+
             await client.send_message(
                 WebSocketMessage(
-                    type=MessageType.AUTH_SUCCESS, data={"client_id": client.id}
+                    type=MessageType.AUTH_SUCCESS,
+                    data={
+                        "client_id": client.id,
+                        "user_id": token_data.user_id,
+                        "session_id": client.audit_session_id,
+                    },
                 )
+            )
+
+            self._audit_log(
+                "re_authentication_success",
+                {
+                    "client_id": client.id,
+                    "old_user_id": old_user_id,
+                    "new_user_id": token_data.user_id,
+                    "session_id": client.audit_session_id,
+                    "permissions": token_data.permissions,
+                },
             )
         else:
             await client.send_message(
@@ -627,11 +796,36 @@ class WebSocketServer:
                 )
             )
 
+            self._audit_log(
+                "re_authentication_failed",
+                {
+                    "client_id": client.id,
+                    "user_id": client.user_id,
+                    "session_id": client.audit_session_id,
+                },
+            )
+
     async def _disconnect_client(self, client_id: str, reason: str) -> None:
-        """Disconnect and cleanup client."""
+        """Disconnect and cleanup client with audit logging."""
         client = self.clients.pop(client_id, None)
         if not client:
             return
+
+        # Audit log disconnection
+        session_duration = (datetime.utcnow() - client.connected_at).total_seconds()
+        self._audit_log(
+            "client_disconnected",
+            {
+                "client_id": client_id,
+                "user_id": client.user_id,
+                "session_id": client.audit_session_id,
+                "reason": reason,
+                "session_duration_seconds": session_duration,
+                "message_count": client.message_count,
+                "subscription_count": len(client.subscriptions),
+                "remote_address": client.websocket.remote_address,
+            },
+        )
 
         # Remove all subscriptions
         for subscription_id in list(client.subscriptions.keys()):
@@ -649,11 +843,10 @@ class WebSocketServer:
         self.logger.info(
             "Client disconnected",
             client_id=client_id,
+            user_id=client.user_id,
             reason=reason,
             active_clients=len(self.clients),
-            session_duration_seconds=(
-                datetime.utcnow() - client.connected_at
-            ).total_seconds(),
+            session_duration_seconds=session_duration,
         )
 
     async def _ping_clients(self) -> None:
@@ -827,6 +1020,41 @@ class WebSocketServer:
             return True
 
         return origin in self.config.allowed_origins
+
+    def _get_subscription_permissions(
+        self, subscription_type: SubscriptionType
+    ) -> list[str]:
+        """Get required permissions for subscription type."""
+        permission_map = {
+            SubscriptionType.EVENTS: ["streaming.events.read"],
+            SubscriptionType.METRICS: ["streaming.metrics.read"],
+            SubscriptionType.ALERTS: ["streaming.alerts.read"],
+            SubscriptionType.PREDICTIONS: [
+                "streaming.predictions.read",
+                "ml.inference.read",
+            ],
+            SubscriptionType.AGGREGATIONS: ["streaming.aggregations.read"],
+            SubscriptionType.SYSTEM_STATUS: ["streaming.admin.read"],
+        }
+        return permission_map.get(subscription_type, [])
+
+    def _audit_log(self, event_type: str, data: dict[str, Any]) -> None:
+        """Log security-relevant events for audit purposes."""
+        audit_entry = {
+            "timestamp": datetime.utcnow().isoformat(),
+            "event_type": event_type,
+            "component": "websocket_server",
+            "server_host": self.config.host,
+            "server_port": self.config.port,
+            **data,
+        }
+
+        # Use structured logging for audit events
+        self.logger.info(
+            "WebSocket audit event",
+            audit_event=audit_entry,
+            event_type=event_type,
+        )
 
     def get_stats(self) -> dict[str, Any]:
         """Get WebSocket server statistics."""

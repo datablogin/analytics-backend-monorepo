@@ -1,6 +1,7 @@
 """Apache Kafka integration for event streaming."""
 
 import asyncio
+import base64
 import json
 import time
 from collections.abc import Callable
@@ -9,6 +10,7 @@ from typing import Any
 import structlog
 from aiokafka import AIOKafkaConsumer, AIOKafkaProducer
 from confluent_kafka.admin import AdminClient, NewTopic
+from cryptography.fernet import Fernet
 
 from .config import KafkaConfig, get_streaming_config
 from .event_store import EventSchema, get_event_store
@@ -16,17 +18,134 @@ from .event_store import EventSchema, get_event_store
 logger = structlog.get_logger(__name__)
 
 
-class KafkaTopicManager:
-    """Manages Kafka topics creation and configuration."""
+class KafkaSecurityManager:
+    """Manages Kafka security features including ACLs and encryption."""
 
     def __init__(self, config: KafkaConfig):
         self.config = config
-        self.admin_client = AdminClient(
-            {
-                "bootstrap.servers": ",".join(config.bootstrap_servers),
-                "security.protocol": config.security_protocol,
-            }
+        self.logger = logger.bind(component="kafka_security_manager")
+        self._encryption_key = None
+
+        # Initialize encryption if enabled
+        if config.enable_data_encryption:
+            self._init_encryption()
+
+    def _init_encryption(self) -> None:
+        """Initialize data encryption."""
+        if self.config.encryption_key:
+            # Use provided key
+            key_bytes = base64.urlsafe_b64decode(self.config.encryption_key.encode())
+            self._encryption_key = Fernet(key_bytes)
+        else:
+            # Generate a new key (should be stored securely in production)
+            self._encryption_key = Fernet(Fernet.generate_key())
+            self.logger.warning(
+                "Generated new encryption key - should be configured externally in production"
+            )
+
+    def encrypt_data(self, data: bytes) -> bytes:
+        """Encrypt data if encryption is enabled."""
+        if not self.config.enable_data_encryption or not self._encryption_key:
+            return data
+
+        try:
+            encrypted = self._encryption_key.encrypt(data)
+            self.logger.debug("Data encrypted successfully")
+            return encrypted
+        except Exception as e:
+            self.logger.error("Data encryption failed", error=str(e))
+            raise
+
+    def decrypt_data(self, encrypted_data: bytes) -> bytes:
+        """Decrypt data if encryption is enabled."""
+        if not self.config.enable_data_encryption or not self._encryption_key:
+            return encrypted_data
+
+        try:
+            decrypted = self._encryption_key.decrypt(encrypted_data)
+            self.logger.debug("Data decrypted successfully")
+            return decrypted
+        except Exception as e:
+            self.logger.error("Data decryption failed", error=str(e))
+            raise
+
+    def get_ssl_config(self) -> dict[str, Any]:
+        """Get SSL configuration for Kafka clients."""
+        ssl_config = {}
+
+        if self.config.security_protocol in ["SSL", "SASL_SSL"]:
+            if self.config.ssl_ca_location:
+                ssl_config["ssl_cafile"] = self.config.ssl_ca_location
+            if self.config.ssl_cert_location:
+                ssl_config["ssl_certfile"] = self.config.ssl_cert_location
+            if self.config.ssl_key_location:
+                ssl_config["ssl_keyfile"] = self.config.ssl_key_location
+            if self.config.ssl_key_password:
+                ssl_config["ssl_password"] = self.config.ssl_key_password
+
+            ssl_config["ssl_check_hostname"] = self.config.ssl_check_hostname
+
+        return ssl_config
+
+    def get_sasl_config(self) -> dict[str, Any]:
+        """Get SASL configuration for Kafka clients."""
+        sasl_config = {}
+
+        if self.config.security_protocol in ["SASL_PLAINTEXT", "SASL_SSL"]:
+            if self.config.sasl_mechanism:
+                sasl_config["sasl_mechanism"] = self.config.sasl_mechanism
+            if self.config.sasl_username:
+                sasl_config["sasl_plain_username"] = self.config.sasl_username
+            if self.config.sasl_password:
+                sasl_config["sasl_plain_password"] = self.config.sasl_password
+            if self.config.sasl_kerberos_service_name:
+                sasl_config["sasl_kerberos_service_name"] = (
+                    self.config.sasl_kerberos_service_name
+                )
+
+        return sasl_config
+
+    def audit_log_access(
+        self, operation: str, topic: str, principal: str | None = None
+    ) -> None:
+        """Log security-relevant Kafka operations for audit purposes."""
+        audit_data = {
+            "timestamp": time.time(),
+            "operation": operation,
+            "topic": topic,
+            "principal": principal or "unknown",
+            "security_protocol": self.config.security_protocol,
+            "encryption_enabled": self.config.enable_data_encryption,
+        }
+
+        self.logger.info(
+            "Kafka security audit event",
+            audit_event=audit_data,
+            operation=operation,
+            topic=topic,
         )
+
+
+class KafkaTopicManager:
+    """Manages Kafka topics creation and configuration with security."""
+
+    def __init__(self, config: KafkaConfig):
+        self.config = config
+        self.security_manager = KafkaSecurityManager(config)
+
+        # Build admin client config with security settings
+        admin_config = {
+            "bootstrap.servers": ",".join(config.bootstrap_servers),
+            "security.protocol": config.security_protocol,
+        }
+
+        # Add SSL configuration
+        admin_config.update(self.security_manager.get_ssl_config())
+
+        # Add SASL configuration
+        admin_config.update(self.security_manager.get_sasl_config())
+
+        self.admin_client = AdminClient(admin_config)
         self.logger = logger.bind(component="kafka_topic_manager")
 
     async def create_topic(
@@ -111,10 +230,11 @@ class KafkaTopicManager:
 
 
 class KafkaProducerManager:
-    """Manages Kafka event production."""
+    """Manages Kafka event production with enhanced security."""
 
     def __init__(self, config: KafkaConfig):
         self.config = config
+        self.security_manager = KafkaSecurityManager(config)
         self.producer: AIOKafkaProducer | None = None
         self.event_store = get_event_store()
         self.logger = logger.bind(component="kafka_producer")
@@ -123,7 +243,7 @@ class KafkaProducerManager:
         self._error_count = 0
 
     async def start(self) -> None:
-        """Start the Kafka producer."""
+        """Start the Kafka producer with security configuration."""
         try:
             producer_config = {
                 "bootstrap_servers": self.config.bootstrap_servers,
@@ -131,23 +251,21 @@ class KafkaProducerManager:
                 **self.config.producer_config,
             }
 
-            # Add authentication if configured
-            if self.config.sasl_mechanism:
-                producer_config.update(
-                    {
-                        "sasl_mechanism": self.config.sasl_mechanism,
-                        "sasl_plain_username": self.config.sasl_username,
-                        "sasl_plain_password": self.config.sasl_password,
-                    }
-                )
+            # Add SSL configuration
+            producer_config.update(self.security_manager.get_ssl_config())
+
+            # Add SASL configuration
+            producer_config.update(self.security_manager.get_sasl_config())
 
             self.producer = AIOKafkaProducer(**producer_config)
             await self.producer.start()
             self._is_running = True
 
             self.logger.info(
-                "Kafka producer started",
+                "Kafka producer started with security",
                 bootstrap_servers=self.config.bootstrap_servers,
+                security_protocol=self.config.security_protocol,
+                encryption_enabled=self.config.enable_data_encryption,
             )
 
         except Exception as e:
@@ -175,15 +293,22 @@ class KafkaProducerManager:
         key: str | None = None,
         partition: int | None = None,
         headers: dict[str, bytes] | None = None,
+        principal: str | None = None,
     ) -> bool:
-        """Send an event to Kafka topic."""
+        """Send an event to Kafka topic with encryption and audit logging."""
         if not self._is_running or not self.producer:
             self.logger.error("Producer not running")
             return False
 
         try:
+            # Audit log the access
+            self.security_manager.audit_log_access("PRODUCE", topic, principal)
+
             # Serialize event to JSON
             event_data = event.to_json().encode("utf-8")
+
+            # Encrypt data if encryption is enabled
+            encrypted_data = self.security_manager.encrypt_data(event_data)
 
             # Use event_id as key if no key provided
             message_key = (key or event.event_id).encode("utf-8")
@@ -197,13 +322,20 @@ class KafkaProducerManager:
                     "source_service": event.source_service.encode("utf-8"),
                     "schema_version": event.schema_version.encode("utf-8"),
                     "timestamp": str(int(event.timestamp.timestamp())).encode("utf-8"),
+                    "encrypted": str(self.config.enable_data_encryption).encode(
+                        "utf-8"
+                    ),
                 }
             )
+
+            # Add principal information if available
+            if principal:
+                message_headers["principal"] = principal.encode("utf-8")
 
             # Send message
             await self.producer.send_and_wait(
                 topic=topic,
-                value=event_data,
+                value=encrypted_data,
                 key=message_key,
                 partition=partition,
                 headers=list(message_headers.items()),
@@ -215,6 +347,8 @@ class KafkaProducerManager:
                 topic=topic,
                 event_id=event.event_id,
                 event_type=event.event_type,
+                encrypted=self.config.enable_data_encryption,
+                principal=principal,
             )
             return True
 
@@ -225,6 +359,7 @@ class KafkaProducerManager:
                 topic=topic,
                 event_id=event.event_id,
                 error=str(e),
+                principal=principal,
             )
             return False
 
@@ -340,11 +475,12 @@ class KafkaProducerManager:
 
 
 class KafkaConsumerManager:
-    """Manages Kafka event consumption."""
+    """Manages Kafka event consumption with enhanced security."""
 
     def __init__(self, config: KafkaConfig, group_id: str):
         self.config = config
         self.group_id = group_id
+        self.security_manager = KafkaSecurityManager(config)
         self.consumer: AIOKafkaConsumer | None = None
         self.event_store = get_event_store()
         self.logger = logger.bind(component="kafka_consumer", group_id=group_id)
@@ -355,7 +491,7 @@ class KafkaConsumerManager:
         self._topics: set[str] = set()
 
     async def start(self, topics: list[str]) -> None:
-        """Start the Kafka consumer."""
+        """Start the Kafka consumer with security configuration."""
         try:
             consumer_config = {
                 "bootstrap_servers": self.config.bootstrap_servers,
@@ -364,15 +500,11 @@ class KafkaConsumerManager:
                 **self.config.consumer_config,
             }
 
-            # Add authentication if configured
-            if self.config.sasl_mechanism:
-                consumer_config.update(
-                    {
-                        "sasl_mechanism": self.config.sasl_mechanism,
-                        "sasl_plain_username": self.config.sasl_username,
-                        "sasl_plain_password": self.config.sasl_password,
-                    }
-                )
+            # Add SSL configuration
+            consumer_config.update(self.security_manager.get_ssl_config())
+
+            # Add SASL configuration
+            consumer_config.update(self.security_manager.get_sasl_config())
 
             self.consumer = AIOKafkaConsumer(*topics, **consumer_config)
 
@@ -380,8 +512,16 @@ class KafkaConsumerManager:
             self._is_running = True
             self._topics.update(topics)
 
+            # Audit log consumer start
+            for topic in topics:
+                self.security_manager.audit_log_access("CONSUME", topic, self.group_id)
+
             self.logger.info(
-                "Kafka consumer started", topics=topics, group_id=self.group_id
+                "Kafka consumer started with security",
+                topics=topics,
+                group_id=self.group_id,
+                security_protocol=self.config.security_protocol,
+                encryption_enabled=self.config.enable_data_encryption,
             )
 
         except Exception as e:
@@ -436,7 +576,7 @@ class KafkaConsumerManager:
         return self.consumer.__aiter__()
 
     async def consume_messages(self, max_messages: int | None = None) -> None:
-        """Consume messages from Kafka topics."""
+        """Consume messages from Kafka topics with decryption and audit logging."""
         if not self._is_running or not self.consumer:
             self.logger.error("Consumer not running")
             return
@@ -446,14 +586,42 @@ class KafkaConsumerManager:
         try:
             async for message in self.consumer:
                 try:
-                    # Parse event from message
-                    event_data = json.loads(message.value.decode("utf-8"))
+                    # Extract metadata from headers
+                    headers = dict(message.headers or [])
+
+                    # Check if message is encrypted
+                    is_encrypted = (
+                        headers.get(b"encrypted", b"False").decode("utf-8") == "True"
+                    )
+                    principal = headers.get(b"principal", b"unknown").decode("utf-8")
+
+                    # Audit log the consumption
+                    self.security_manager.audit_log_access(
+                        "CONSUME", message.topic, principal
+                    )
+
+                    # Decrypt message data if needed
+                    if is_encrypted or self.config.enable_data_encryption:
+                        try:
+                            decrypted_data = self.security_manager.decrypt_data(
+                                message.value
+                            )
+                            event_data = json.loads(decrypted_data.decode("utf-8"))
+                        except Exception as decrypt_error:
+                            self.logger.error(
+                                "Failed to decrypt message",
+                                topic=message.topic,
+                                partition=message.partition,
+                                offset=message.offset,
+                                error=str(decrypt_error),
+                            )
+                            raise
+                    else:
+                        # Parse event from unencrypted message
+                        event_data = json.loads(message.value.decode("utf-8"))
 
                     # Validate event using event store
                     event = self.event_store.validate_event(event_data)
-
-                    # Extract metadata from headers
-                    headers = dict(message.headers or [])
 
                     # Call registered handlers
                     await self._process_event(event, headers)
@@ -467,6 +635,8 @@ class KafkaConsumerManager:
                         partition=message.partition,
                         offset=message.offset,
                         event_id=event.event_id,
+                        encrypted=is_encrypted,
+                        principal=principal,
                     )
 
                     # Break if max messages reached
@@ -599,10 +769,11 @@ class KafkaConsumerManager:
 
 
 class KafkaManager:
-    """Main Kafka manager orchestrating producers and consumers."""
+    """Main Kafka manager orchestrating producers and consumers with security."""
 
     def __init__(self, config: KafkaConfig | None = None):
         self.config = config or get_streaming_config().kafka
+        self.security_manager = KafkaSecurityManager(self.config)
         self.topic_manager = KafkaTopicManager(self.config)
         self.producers: dict[str, KafkaProducerManager] = {}
         self.consumers: dict[str, KafkaConsumerManager] = {}

@@ -51,7 +51,7 @@ async def login(
 
     permissions = await AuthService.get_user_permissions(db, user.id)
     access_token_expires = timedelta(minutes=30)
-    access_token = AuthService.create_access_token(
+    access_token = await AuthService.create_access_token(
         data={"sub": str(user.id), "permissions": permissions},
         expires_delta=access_token_expires,
     )
