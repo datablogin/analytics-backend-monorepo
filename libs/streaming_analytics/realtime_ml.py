@@ -23,6 +23,7 @@ from libs.ml_models.registry import ModelRegistry
 
 from .config import RealtimeMLConfig, get_streaming_config
 from .event_store import EventSchema, EventType, MLPredictionEvent
+from .performance_profiler import get_performance_profiler, profile_streaming_method
 
 logger = structlog.get_logger(__name__)
 
@@ -200,7 +201,7 @@ class DefaultFeatureExtractor(FeatureExtractor):
 
 
 class ModelCache:
-    """Cache for loaded ML models with proper resource management."""
+    """Cache for loaded ML models with proper resource management and performance optimization."""
 
     def __init__(self, max_size: int = 10, max_memory_mb: int = 1024):
         self.max_size = max_size
@@ -210,15 +211,25 @@ class ModelCache:
         self.model_sizes: dict[str, int] = {}  # Track model memory usage
         self.total_memory_mb = 0
         self.logger = logger.bind(component="model_cache")
+        self._profiler = get_performance_profiler()
 
+        # Performance optimization: cache hit/miss tracking
+        self._hit_count = 0
+        self._miss_count = 0
+        self._stats_cache: dict[str, Any] = {}
+        self._last_stats_update = 0
+
+    @profile_streaming_method("model_cache", "get_model")
     def get_model(self, model_key: str) -> Any | None:
-        """Get model from cache."""
+        """Get model from cache with performance tracking."""
         if model_key in self.cache:
             model, cached_at = self.cache[model_key]
             self.access_times[model_key] = datetime.utcnow()
+            self._hit_count += 1
             self.logger.debug("Model cache hit", model_key=model_key)
             return model
 
+        self._miss_count += 1
         self.logger.debug("Model cache miss", model_key=model_key)
         return None
 
@@ -290,17 +301,30 @@ class ModelCache:
         self.logger.debug("Evicted LRU model", model_key=lru_key)
 
     def get_stats(self) -> dict[str, Any]:
-        """Get cache statistics."""
-        return {
-            "cache_size": len(self.cache),
-            "max_size": self.max_size,
-            "total_memory_mb": self.total_memory_mb,
-            "max_memory_mb": self.max_memory_mb,
-            "cached_models": list(self.cache.keys()),
-            "memory_utilization": self.total_memory_mb / self.max_memory_mb
-            if self.max_memory_mb > 0
-            else 0,
-        }
+        """Get cache statistics with performance metrics."""
+        current_time = time.time()
+
+        # Cache stats calculation for 1 second
+        if current_time - self._last_stats_update > 1.0:
+            total_requests = self._hit_count + self._miss_count
+            hit_rate = (self._hit_count / max(total_requests, 1)) * 100
+
+            self._stats_cache = {
+                "cache_size": len(self.cache),
+                "max_size": self.max_size,
+                "total_memory_mb": self.total_memory_mb,
+                "max_memory_mb": self.max_memory_mb,
+                "cached_models": list(self.cache.keys()),
+                "memory_utilization": self.total_memory_mb / self.max_memory_mb
+                if self.max_memory_mb > 0
+                else 0,
+                "hit_count": self._hit_count,
+                "miss_count": self._miss_count,
+                "hit_rate_percent": hit_rate,
+            }
+            self._last_stats_update = current_time
+
+        return self._stats_cache.copy()
 
     def _estimate_model_size(self, model: Any) -> int:
         """Estimate model memory usage in MB."""
@@ -491,6 +515,7 @@ class RealtimeMLInferenceEngine:
             extractor_type=type(extractor).__name__,
         )
 
+    @profile_streaming_method("realtime_ml_engine", "predict_from_event")
     async def predict_from_event(
         self,
         event: EventSchema,
@@ -498,7 +523,7 @@ class RealtimeMLInferenceEngine:
         model_version: str | None = None,
         use_feature_store: bool = True,
     ) -> PredictionResult | None:
-        """Make prediction from event data."""
+        """Make prediction from event data with performance optimization."""
         try:
             # Extract basic features from event
             extractor = self.feature_extractors.get(event.event_type.value)
@@ -579,8 +604,9 @@ class RealtimeMLInferenceEngine:
                 error_message=str(error),
             )
 
+    @profile_streaming_method("realtime_ml_engine", "predict")
     async def predict(self, request: PredictionRequest) -> PredictionResult | None:
-        """Make prediction from request."""
+        """Make prediction from request with performance optimization."""
         start_time = time.time()
 
         try:

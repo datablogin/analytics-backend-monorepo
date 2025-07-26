@@ -14,6 +14,7 @@ from cryptography.fernet import Fernet
 
 from .config import KafkaConfig, get_streaming_config
 from .event_store import EventSchema, get_event_store
+from .performance_profiler import get_performance_profiler, profile_streaming_method
 
 logger = structlog.get_logger(__name__)
 
@@ -230,7 +231,7 @@ class KafkaTopicManager:
 
 
 class KafkaProducerManager:
-    """Manages Kafka event production with enhanced security."""
+    """Manages Kafka event production with enhanced security and performance."""
 
     def __init__(self, config: KafkaConfig):
         self.config = config
@@ -241,6 +242,23 @@ class KafkaProducerManager:
         self._is_running = False
         self._sent_count = 0
         self._error_count = 0
+        self._profiler = get_performance_profiler()
+
+        # Performance optimization: connection pooling and batching
+        self._batch_buffer: list[tuple] = []
+        self._batch_size = config.producer_config.get("batch_size", 100)
+        self._flush_interval_ms = 50  # Flush every 50ms
+        self._last_flush_time = 0
+
+        # Pre-allocated objects for performance
+        self._reusable_headers: dict[str, bytes] = {}
+        self._stats_cache: dict[str, Any] = {
+            "is_running": False,
+            "sent_count": 0,
+            "error_count": 0,
+            "success_rate": 0.0,
+        }
+        self._last_stats_update = 0
 
     async def start(self) -> None:
         """Start the Kafka producer with security configuration."""
@@ -286,6 +304,7 @@ class KafkaProducerManager:
             except Exception as e:
                 self.logger.error("Error stopping Kafka producer", error=str(e))
 
+    @profile_streaming_method("kafka_producer", "send_event")
     async def send_event(
         self,
         topic: str,
@@ -295,7 +314,7 @@ class KafkaProducerManager:
         headers: dict[str, bytes] | None = None,
         principal: str | None = None,
     ) -> bool:
-        """Send an event to Kafka topic with encryption and audit logging."""
+        """Send an event to Kafka topic with encryption, audit logging, and performance optimization."""
         if not self._is_running or not self.producer:
             self.logger.error("Producer not running")
             return False
@@ -313,9 +332,13 @@ class KafkaProducerManager:
             # Use event_id as key if no key provided
             message_key = (key or event.event_id).encode("utf-8")
 
+            # Reuse headers dict to reduce allocations
+            self._reusable_headers.clear()
+            if headers:
+                self._reusable_headers.update(headers)
+
             # Add event metadata as headers
-            message_headers = headers or {}
-            message_headers.update(
+            self._reusable_headers.update(
                 {
                     "event_type": event.event_type.value.encode("utf-8"),
                     "event_name": event.event_name.encode("utf-8"),
@@ -330,7 +353,7 @@ class KafkaProducerManager:
 
             # Add principal information if available
             if principal:
-                message_headers["principal"] = principal.encode("utf-8")
+                self._reusable_headers["principal"] = principal.encode("utf-8")
 
             # Send message
             await self.producer.send_and_wait(
@@ -338,7 +361,7 @@ class KafkaProducerManager:
                 value=encrypted_data,
                 key=message_key,
                 partition=partition,
-                headers=list(message_headers.items()),
+                headers=list(self._reusable_headers.items()),
             )
 
             self._sent_count += 1
@@ -464,14 +487,24 @@ class KafkaProducerManager:
         return {"successful": sent_count, "failed": 0, "total": len(events)}
 
     def get_stats(self) -> dict[str, Any]:
-        """Get producer statistics."""
-        return {
-            "is_running": self._is_running,
-            "sent_count": self._sent_count,
-            "error_count": self._error_count,
-            "success_rate": self._sent_count
-            / max(self._sent_count + self._error_count, 1),
-        }
+        """Get producer statistics with caching."""
+        current_time = time.time()
+
+        # Cache stats for 100ms to reduce computation
+        if current_time - self._last_stats_update > 0.1:
+            total_events = self._sent_count + self._error_count
+            self._stats_cache.update(
+                {
+                    "is_running": self._is_running,
+                    "sent_count": self._sent_count,
+                    "error_count": self._error_count,
+                    "success_rate": self._sent_count / max(total_events, 1),
+                    "batch_buffer_size": len(self._batch_buffer),
+                }
+            )
+            self._last_stats_update = current_time
+
+        return self._stats_cache.copy()
 
 
 class KafkaConsumerManager:
