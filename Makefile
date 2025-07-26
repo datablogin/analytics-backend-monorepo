@@ -1,4 +1,4 @@
-.PHONY: help install dev-install test test-integration test-performance lint format type-check clean run-api setup-hooks ci migrate-create migrate-upgrade migrate-downgrade migrate-history migrate-current
+.PHONY: help install dev-install test test-integration test-performance lint format type-check clean run-api setup-hooks ci migrate-create migrate-upgrade migrate-downgrade migrate-history migrate-current setup-claude-review review review-security review-performance review-and-push
 
 help:
 	@echo "Available commands:"
@@ -21,6 +21,13 @@ help:
 	@echo "  migrate-downgrade- Rollback last migration"
 	@echo "  migrate-history  - Show migration history"
 	@echo "  migrate-current  - Show current migration"
+	@echo ""
+	@echo "Code Review Commands:"
+	@echo "  setup-claude-review - Setup Claude review automation"
+	@echo "  review           - Run Claude review on current PR"
+	@echo "  review-security  - Run security-focused Claude review"
+	@echo "  review-performance - Run performance-focused Claude review"
+	@echo "  review-and-push  - Run CI checks, review, then push"
 
 install:
 	uv sync
@@ -79,3 +86,32 @@ migrate-history:
 
 migrate-current:
 	alembic current
+
+# Code Review Commands
+setup-claude-review:
+	@echo "🚀 Setting up Claude review automation..."
+	./scripts/setup-claude-review.sh
+
+review:
+	@echo "🤖 Running Claude review on current PR..."
+	./claude-review.sh
+
+review-security:
+	@echo "🔒 Running security-focused Claude review..."
+	./claude-review.sh --focus security
+
+review-performance:
+	@echo "🚀 Running performance-focused Claude review..."
+	./claude-review.sh --focus performance
+
+review-and-push:
+	@echo "🔄 Running full CI pipeline + review workflow..."
+	@echo "Step 1: Running CI checks..."
+	@$(MAKE) ci
+	@echo ""
+	@echo "Step 2: Running Claude review..."
+	@$(MAKE) review-security
+	@echo ""
+	@echo "Step 3: Pushing changes..."
+	git push
+	@echo "✅ Complete! Review posted to PR."

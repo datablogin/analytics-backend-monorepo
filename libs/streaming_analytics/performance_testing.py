@@ -57,7 +57,9 @@ class PerformanceMetrics:
         """95th percentile latency in milliseconds."""
         if not self.latency_ms:
             return 0.0
-        return statistics.quantiles(self.latency_ms, n=QUANTILES_COUNT)[P95_QUANTILE_INDEX]
+        return statistics.quantiles(self.latency_ms, n=QUANTILES_COUNT)[
+            P95_QUANTILE_INDEX
+        ]
 
     @property
     def p99_latency_ms(self) -> float:

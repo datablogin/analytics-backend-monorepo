@@ -450,7 +450,11 @@ class WindowManager:
         proactive_limit = int(self._window_count_limit * 0.8)
 
         if total_windows > proactive_limit:
-            cleanup_type = "proactive" if total_windows <= self._window_count_limit else "emergency"
+            cleanup_type = (
+                "proactive"
+                if total_windows <= self._window_count_limit
+                else "emergency"
+            )
             self.logger.info(
                 f"Running {cleanup_type} window cleanup",
                 total_windows=total_windows,

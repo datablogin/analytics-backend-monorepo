@@ -673,8 +673,10 @@ class RealtimeMLInferenceEngine:
             model = await self._get_or_load_model(request)
             if model is None:
                 return self._create_error_result(
-                    request, start_time, PredictionStatus.MODEL_NOT_FOUND,
-                    f"Model {request.model_name} not found"
+                    request,
+                    start_time,
+                    PredictionStatus.MODEL_NOT_FOUND,
+                    f"Model {request.model_name} not found",
                 )
 
             # Prepare features for inference
@@ -682,18 +684,26 @@ class RealtimeMLInferenceEngine:
 
             # Perform model inference
             inference_start = time.time()
-            prediction_value, confidence_score = self._execute_inference(model, feature_array)
+            prediction_value, confidence_score = self._execute_inference(
+                model, feature_array
+            )
             inference_time_ms = (time.time() - inference_start) * 1000
 
             # Update statistics and create result
             self._update_inference_stats(inference_time_ms)
             return self._create_success_result(
-                request, start_time, inference_time_ms, prediction_value,
-                confidence_score, feature_names
+                request,
+                start_time,
+                inference_time_ms,
+                prediction_value,
+                confidence_score,
+                feature_names,
             )
 
         except Exception as e:
-            return self._handle_prediction_error(request, start_time, inference_start, e)
+            return self._handle_prediction_error(
+                request, start_time, inference_start, e
+            )
 
     async def _get_or_load_model(self, request: PredictionRequest) -> Any | None:
         """Get model from cache or load from registry."""
@@ -702,24 +712,31 @@ class RealtimeMLInferenceEngine:
 
         if model is None:
             # Load from model registry
-            model_version = await self._load_model(request.model_name, request.model_version)
+            model_version = await self._load_model(
+                request.model_name, request.model_version
+            )
             if model_version is None:
                 return None
 
             # Load the actual model using MLflow
             import mlflow.pyfunc
+
             model_uri = f"models:/{model_version.name}/{model_version.version}"
 
             # Validate model URI for security
             if not _validate_model_uri(model_uri):
-                raise ValueError(f"Invalid or potentially unsafe model URI: {model_uri}")
+                raise ValueError(
+                    f"Invalid or potentially unsafe model URI: {model_uri}"
+                )
 
             model = mlflow.pyfunc.load_model(model_uri)
             self.model_cache.put_model(model_key, model)
 
         return model
 
-    def _prepare_features(self, request: PredictionRequest, model: Any) -> tuple[np.ndarray, list[str]]:
+    def _prepare_features(
+        self, request: PredictionRequest, model: Any
+    ) -> tuple[np.ndarray, list[str]]:
         """Prepare features for model inference."""
         # Convert to FeatureVector if needed
         if isinstance(request.features, FeatureVector):
@@ -737,7 +754,9 @@ class RealtimeMLInferenceEngine:
 
         return feature_array, feature_names
 
-    def _execute_inference(self, model: Any, feature_array: np.ndarray) -> tuple[Any, float | None]:
+    def _execute_inference(
+        self, model: Any, feature_array: np.ndarray
+    ) -> tuple[Any, float | None]:
         """Execute model inference and return prediction and confidence."""
         if hasattr(model, "predict_proba"):
             # Classification with probabilities
@@ -761,8 +780,13 @@ class RealtimeMLInferenceEngine:
         self._total_inference_time_ms += inference_time_ms
 
     def _create_success_result(
-        self, request: PredictionRequest, start_time: float, inference_time_ms: float,
-        prediction_value: Any, confidence_score: float | None, feature_names: list[str]
+        self,
+        request: PredictionRequest,
+        start_time: float,
+        inference_time_ms: float,
+        prediction_value: Any,
+        confidence_score: float | None,
+        feature_names: list[str],
     ) -> PredictionResult:
         """Create successful prediction result."""
         total_time_ms = (time.time() - start_time) * 1000
@@ -790,8 +814,11 @@ class RealtimeMLInferenceEngine:
         return result
 
     def _create_error_result(
-        self, request: PredictionRequest, start_time: float,
-        status: PredictionStatus, error_message: str
+        self,
+        request: PredictionRequest,
+        start_time: float,
+        status: PredictionStatus,
+        error_message: str,
     ) -> PredictionResult:
         """Create error prediction result."""
         total_time_ms = (time.time() - start_time) * 1000
@@ -807,8 +834,11 @@ class RealtimeMLInferenceEngine:
         )
 
     def _handle_prediction_error(
-        self, request: PredictionRequest, start_time: float,
-        inference_start: float | None, error: Exception
+        self,
+        request: PredictionRequest,
+        start_time: float,
+        inference_start: float | None,
+        error: Exception,
     ) -> PredictionResult:
         """Handle prediction errors and create error result."""
         self._error_count += 1

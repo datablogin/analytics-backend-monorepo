@@ -341,7 +341,7 @@ class PerformanceProfiler:
             ps = pstats.Stats(self._cpu_profiler, stream=s)
 
             # Get total time from stats
-            return getattr(ps, 'total_tt', 0.0)
+            return getattr(ps, "total_tt", 0.0)
         except Exception as e:
             self.logger.warning("Failed to extract CPU time", error=str(e))
             return 0.0
@@ -415,9 +415,10 @@ class PerformanceProfiler:
 
         # Sort by total time to find biggest bottlenecks
         from typing import cast
-        hotspots = sorted(all_methods, key=lambda x: cast(float, x["total_time_ms"]), reverse=True)[
-            :10
-        ]
+
+        hotspots = sorted(
+            all_methods, key=lambda x: cast(float, x["total_time_ms"]), reverse=True
+        )[:10]
 
         return {
             "total_calls": total_calls,
