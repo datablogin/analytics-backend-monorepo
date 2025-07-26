@@ -1113,7 +1113,7 @@ class RealtimeMLInferenceEngine:
             "success_rate": self._inference_count
             / max(self._inference_count + self._error_count, 1),
             "average_inference_time_ms": avg_inference_time,
-            "batch_queue_size": len(self._batch_queue),
+            "batch_queue_size": self._batch_queue.qsize(),
             "model_cache": self.model_cache.get_stats(),
             "feature_extractors": list(self.feature_extractors.keys()),
         }
