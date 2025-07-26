@@ -1,0 +1,205 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: streaming-analytics-netpol
+  namespace: streaming-analytics
+  labels:
+    app: streaming-analytics
+spec:
+  podSelector:
+    matchLabels:
+      component: streaming-analytics
+  policyTypes:
+  - Ingress
+  - Egress
+  ingress:
+  # Allow traffic from within the namespace
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          name: streaming-analytics
+  # Allow traffic from istio-system namespace
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          name: istio-system
+  # Allow traffic from observability namespace
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          name: observability
+    ports:
+    - protocol: TCP
+      port: 8080  # Metrics endpoint
+  # Allow external traffic to WebSocket service
+  - from: []
+    ports:
+    - protocol: TCP
+      port: 8765  # WebSocket port
+  egress:
+  # Allow DNS resolution
+  - to: []
+    ports:
+    - protocol: TCP
+      port: 53
+    - protocol: UDP
+      port: 53
+  # Allow HTTPS traffic
+  - to: []
+    ports:
+    - protocol: TCP
+      port: 443
+  # Allow Kafka communication
+  - to: []
+    ports:
+    - protocol: TCP
+      port: 9092
+    - protocol: TCP
+      port: 9093
+    - protocol: TCP
+      port: 9094
+  # Allow PostgreSQL communication
+  - to: []
+    ports:
+    - protocol: TCP
+      port: 5432
+  # Allow Redis communication
+  - to: []
+    ports:
+    - protocol: TCP
+      port: 6379
+  # Allow communication within namespace
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          name: streaming-analytics
+  # Allow communication to observability namespace
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          name: observability
+    ports:
+    - protocol: TCP
+      port: 4317  # OTLP
+    - protocol: TCP
+      port: 14250 # Jaeger
+    - protocol: TCP
+      port: 9090  # Prometheus
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: websocket-server-netpol
+  namespace: streaming-analytics
+  labels:
+    app: websocket-server
+spec:
+  podSelector:
+    matchLabels:
+      app: websocket-server
+  policyTypes:
+  - Ingress
+  - Egress
+  ingress:
+  # Allow all traffic to WebSocket port (handled by load balancer)
+  - ports:
+    - protocol: TCP
+      port: 8765
+  # Allow metrics scraping
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          name: observability
+    ports:
+    - protocol: TCP
+      port: 8080
+  egress:
+  # Inherit from main policy and add specific rules
+  - to: []
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: stream-processor-netpol
+  namespace: streaming-analytics
+  labels:
+    app: stream-processor
+spec:
+  podSelector:
+    matchLabels:
+      app: stream-processor
+  policyTypes:
+  - Ingress
+  - Egress
+  ingress:
+  # Only allow metrics scraping
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          name: observability
+    ports:
+    - protocol: TCP
+      port: 8080
+  egress:
+  # Stream processors need to communicate with Kafka extensively
+  - to: []
+    ports:
+    - protocol: TCP
+      port: 9092
+    - protocol: TCP
+      port: 9093
+    - protocol: TCP
+      port: 9094
+  # Allow communication to other services
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          name: streaming-analytics
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: ml-inference-netpol
+  namespace: streaming-analytics
+  labels:
+    app: ml-inference
+spec:
+  podSelector:
+    matchLabels:
+      app: ml-inference
+  policyTypes:
+  - Ingress
+  - Egress
+  ingress:
+  # Allow internal service communication
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          name: streaming-analytics
+    ports:
+    - protocol: TCP
+      port: 8081  # Inference endpoint
+  # Allow metrics scraping
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          name: observability
+    ports:
+    - protocol: TCP
+      port: 8080
+  egress:
+  # Allow MLflow communication
+  - to: []
+    ports:
+    - protocol: TCP
+      port: 443  # MLflow API
+  # Allow feature store communication
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          name: streaming-analytics
+  # Allow external model registry access
+  - to: []
+    ports:
+    - protocol: TCP
+      port: 443

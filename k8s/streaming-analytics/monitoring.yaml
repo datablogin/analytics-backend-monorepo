@@ -1,0 +1,227 @@
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: streaming-analytics-metrics
+  namespace: streaming-analytics
+  labels:
+    app: streaming-analytics
+    monitoring: prometheus
+spec:
+  selector:
+    matchLabels:
+      component: streaming-analytics
+  endpoints:
+  - port: metrics
+    interval: 15s
+    path: /metrics
+    honorLabels: true
+    scrapeTimeout: 10s
+  namespaceSelector:
+    matchNames:
+    - streaming-analytics
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: websocket-server-metrics
+  namespace: streaming-analytics
+  labels:
+    app: websocket-server
+    monitoring: prometheus
+spec:
+  selector:
+    matchLabels:
+      app: websocket-server
+  endpoints:
+  - port: metrics
+    interval: 10s
+    path: /metrics
+    honorLabels: true
+    scrapeTimeout: 5s
+    metricRelabelings:
+    - sourceLabels: [__name__]
+      regex: 'websocket_.*'
+      action: keep
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: stream-processor-metrics
+  namespace: streaming-analytics
+  labels:
+    app: stream-processor
+    monitoring: prometheus
+spec:
+  selector:
+    matchLabels:
+      app: stream-processor
+  endpoints:
+  - port: metrics
+    interval: 10s
+    path: /metrics
+    honorLabels: true
+    scrapeTimeout: 5s
+    metricRelabelings:
+    - sourceLabels: [__name__]
+      regex: 'kafka_.*|stream_.*|processing_.*'
+      action: keep
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: ml-inference-metrics
+  namespace: streaming-analytics
+  labels:
+    app: ml-inference
+    monitoring: prometheus
+spec:
+  selector:
+    matchLabels:
+      app: ml-inference
+  endpoints:
+  - port: metrics
+    interval: 10s
+    path: /metrics
+    honorLabels: true
+    scrapeTimeout: 5s
+    metricRelabelings:
+    - sourceLabels: [__name__]
+      regex: 'ml_.*|inference_.*|model_.*'
+      action: keep
+---
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: streaming-analytics-alerts
+  namespace: streaming-analytics
+  labels:
+    app: streaming-analytics
+    monitoring: prometheus
+spec:
+  groups:
+  - name: streaming-analytics.rules
+    interval: 30s
+    rules:
+    # WebSocket Server Alerts
+    - alert: WebSocketHighLatency
+      expr: histogram_quantile(0.95, websocket_request_duration_seconds_bucket) > 1
+      for: 2m
+      labels:
+        severity: warning
+        component: websocket-server
+      annotations:
+        summary: "WebSocket server high latency"
+        description: "WebSocket server 95th percentile latency is {{ $value }}s"
+    
+    - alert: WebSocketConnectionsHigh
+      expr: websocket_connections_active > 8000
+      for: 5m
+      labels:
+        severity: warning
+        component: websocket-server
+      annotations:
+        summary: "High number of WebSocket connections"
+        description: "WebSocket server has {{ $value }} active connections"
+    
+    - alert: WebSocketServerDown
+      expr: up{job="websocket-server"} == 0
+      for: 1m
+      labels:
+        severity: critical
+        component: websocket-server
+      annotations:
+        summary: "WebSocket server is down"
+        description: "WebSocket server instance {{ $labels.instance }} is down"
+    
+    # Stream Processor Alerts
+    - alert: StreamProcessingHighLatency
+      expr: histogram_quantile(0.95, stream_processing_duration_seconds_bucket) > 0.1
+      for: 2m
+      labels:
+        severity: warning
+        component: stream-processor
+      annotations:
+        summary: "Stream processing high latency"
+        description: "Stream processing 95th percentile latency is {{ $value }}s"
+    
+    - alert: KafkaConsumerLagHigh
+      expr: kafka_consumer_lag > 10000
+      for: 5m
+      labels:
+        severity: warning
+        component: stream-processor
+      annotations:
+        summary: "High Kafka consumer lag"
+        description: "Kafka consumer lag is {{ $value }} messages"
+    
+    - alert: StreamProcessorErrorRateHigh
+      expr: rate(stream_processing_errors_total[5m]) > 0.05
+      for: 2m
+      labels:
+        severity: critical
+        component: stream-processor
+      annotations:
+        summary: "High stream processing error rate"
+        description: "Stream processing error rate is {{ $value | humanizePercentage }}"
+    
+    # ML Inference Alerts
+    - alert: MLInferenceHighLatency
+      expr: histogram_quantile(0.95, ml_inference_duration_seconds_bucket) > 0.1
+      for: 2m
+      labels:
+        severity: warning
+        component: ml-inference
+      annotations:
+        summary: "ML inference high latency"
+        description: "ML inference 95th percentile latency is {{ $value }}s"
+    
+    - alert: MLModelLoadFailure
+      expr: increase(ml_model_load_failures_total[5m]) > 0
+      for: 1m
+      labels:
+        severity: critical
+        component: ml-inference
+      annotations:
+        summary: "ML model load failure"
+        description: "ML model failed to load {{ $value }} times in the last 5 minutes"
+    
+    - alert: MLInferenceQueueHigh
+      expr: ml_inference_queue_size > 100
+      for: 5m
+      labels:
+        severity: warning
+        component: ml-inference
+      annotations:
+        summary: "ML inference queue is high"
+        description: "ML inference queue size is {{ $value }}"
+    
+    # General System Alerts
+    - alert: HighCPUUsage
+      expr: rate(container_cpu_usage_seconds_total{namespace="streaming-analytics"}[5m]) > 0.8
+      for: 5m
+      labels:
+        severity: warning
+        component: system
+      annotations:
+        summary: "High CPU usage"
+        description: "CPU usage is {{ $value | humanizePercentage }} for {{ $labels.pod }}"
+    
+    - alert: HighMemoryUsage
+      expr: container_memory_usage_bytes{namespace="streaming-analytics"} / container_spec_memory_limit_bytes > 0.9
+      for: 5m
+      labels:
+        severity: warning
+        component: system
+      annotations:
+        summary: "High memory usage"
+        description: "Memory usage is {{ $value | humanizePercentage }} for {{ $labels.pod }}"
+    
+    - alert: PodRestartingTooMuch
+      expr: increase(kube_pod_container_status_restarts_total{namespace="streaming-analytics"}[1h]) > 5
+      for: 5m
+      labels:
+        severity: warning
+        component: system
+      annotations:
+        summary: "Pod restarting too much"
+        description: "Pod {{ $labels.pod }} has restarted {{ $value }} times in the last hour"
