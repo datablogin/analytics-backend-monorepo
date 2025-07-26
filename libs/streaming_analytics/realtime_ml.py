@@ -1,6 +1,7 @@
 """Real-time machine learning inference pipeline for streaming analytics."""
 
 import asyncio
+import re
 import time
 from abc import ABC, abstractmethod
 from collections.abc import Callable
@@ -8,11 +9,16 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
 from typing import Any
+from urllib.parse import urlparse
 
 import numpy as np
 import structlog
 from mlflow.entities.model_registry import ModelVersion
 
+from libs.ml_models.feature_store_integration import (
+    FeatureStoreClient,
+    create_feature_store_client,
+)
 from libs.ml_models.registry import ModelRegistry
 
 from .config import RealtimeMLConfig, get_streaming_config
@@ -194,12 +200,15 @@ class DefaultFeatureExtractor(FeatureExtractor):
 
 
 class ModelCache:
-    """Cache for loaded ML models."""
+    """Cache for loaded ML models with proper resource management."""
 
-    def __init__(self, max_size: int = 10):
+    def __init__(self, max_size: int = 10, max_memory_mb: int = 1024):
         self.max_size = max_size
+        self.max_memory_mb = max_memory_mb
         self.cache: dict[str, tuple[Any, datetime]] = {}
         self.access_times: dict[str, datetime] = {}
+        self.model_sizes: dict[str, int] = {}  # Track model memory usage
+        self.total_memory_mb = 0
         self.logger = logger.bind(component="model_cache")
 
     def get_model(self, model_key: str) -> Any | None:
@@ -214,24 +223,61 @@ class ModelCache:
         return None
 
     def put_model(self, model_key: str, model: Any) -> None:
-        """Put model in cache."""
-        # Evict least recently used model if cache is full
-        if len(self.cache) >= self.max_size:
+        """Put model in cache with memory management."""
+        # Estimate model size (rough approximation)
+        model_size_mb = self._estimate_model_size(model)
+
+        # Evict models if needed based on size or count limits
+        while (
+            len(self.cache) >= self.max_size
+            or self.total_memory_mb + model_size_mb > self.max_memory_mb
+        ):
+            if not self.cache:  # Prevent infinite loop
+                break
             self._evict_lru()
 
         self.cache[model_key] = (model, datetime.utcnow())
         self.access_times[model_key] = datetime.utcnow()
+        self.model_sizes[model_key] = model_size_mb
+        self.total_memory_mb += model_size_mb
 
         self.logger.info(
-            "Model cached", model_key=model_key, cache_size=len(self.cache)
+            "Model cached",
+            model_key=model_key,
+            cache_size=len(self.cache),
+            model_size_mb=model_size_mb,
+            total_memory_mb=self.total_memory_mb,
         )
 
     def remove_model(self, model_key: str) -> None:
-        """Remove model from cache."""
+        """Remove model from cache with proper cleanup."""
         if model_key in self.cache:
+            # Clean up model object explicitly
+            model, _ = self.cache[model_key]
+            if hasattr(model, "close"):
+                try:
+                    model.close()
+                except Exception as e:
+                    self.logger.warning(
+                        "Error closing model", model_key=model_key, error=str(e)
+                    )
+
+            # Update memory tracking
+            model_size = self.model_sizes.get(model_key, 0)
+            self.total_memory_mb -= model_size
+
+            # Remove from all tracking dicts
             del self.cache[model_key]
             del self.access_times[model_key]
-            self.logger.info("Model removed from cache", model_key=model_key)
+            if model_key in self.model_sizes:
+                del self.model_sizes[model_key]
+
+            self.logger.info(
+                "Model removed from cache",
+                model_key=model_key,
+                freed_memory_mb=model_size,
+                remaining_memory_mb=self.total_memory_mb,
+            )
 
     def _evict_lru(self) -> None:
         """Evict least recently used model."""
@@ -248,8 +294,107 @@ class ModelCache:
         return {
             "cache_size": len(self.cache),
             "max_size": self.max_size,
+            "total_memory_mb": self.total_memory_mb,
+            "max_memory_mb": self.max_memory_mb,
             "cached_models": list(self.cache.keys()),
+            "memory_utilization": self.total_memory_mb / self.max_memory_mb
+            if self.max_memory_mb > 0
+            else 0,
         }
+
+    def _estimate_model_size(self, model: Any) -> int:
+        """Estimate model memory usage in MB."""
+        try:
+            import sys
+
+            # Try to get actual size if available
+            if hasattr(model, "get_memory_usage"):
+                return model.get_memory_usage()
+
+            # Rough estimation based on object size
+            size_bytes = sys.getsizeof(model)
+
+            # For ML models, multiply by factor to account for parameters
+            if hasattr(model, "coef_") or hasattr(model, "feature_importances_"):
+                size_bytes *= 10  # sklearn models
+            elif hasattr(model, "get_weights"):
+                size_bytes *= 50  # neural network models
+            else:
+                size_bytes *= 5  # default multiplier
+
+            return max(1, size_bytes // (1024 * 1024))  # Convert to MB, minimum 1MB
+        except Exception:
+            return 10  # Default 10MB estimate
+
+    def clear_all(self) -> None:
+        """Clear all models from cache with proper cleanup."""
+        models_to_remove = list(self.cache.keys())
+        for model_key in models_to_remove:
+            self.remove_model(model_key)
+
+        self.logger.info("All models cleared from cache")
+
+    def cleanup_expired_models(self, max_age_minutes: int = 60) -> None:
+        """Remove models older than specified age."""
+        current_time = datetime.utcnow()
+        expired_keys = []
+
+        for model_key, (_, cached_at) in self.cache.items():
+            age_minutes = (current_time - cached_at).total_seconds() / 60
+            if age_minutes > max_age_minutes:
+                expired_keys.append(model_key)
+
+        for key in expired_keys:
+            self.remove_model(key)
+
+        if expired_keys:
+            self.logger.info(f"Cleaned up {len(expired_keys)} expired models")
+
+
+def _validate_model_uri(model_uri: str) -> bool:
+    """Validate model URI for security and format correctness."""
+    try:
+        # Check for basic format requirements
+        if not model_uri or not isinstance(model_uri, str):
+            return False
+
+        # Validate against known safe patterns
+        # MLflow model registry URIs: models:/<model_name>/<version_or_stage>
+        mlflow_registry_pattern = r"^models:/[a-zA-Z0-9_\-\.]+/[a-zA-Z0-9_\-\.]+$"
+
+        # MLflow artifact URIs (local, S3, etc.)
+        # Allow common safe schemes but block dangerous ones
+        if model_uri.startswith("models:/"):
+            # MLflow model registry format
+            if not re.match(mlflow_registry_pattern, model_uri):
+                return False
+        else:
+            # Parse as URL for other formats
+            parsed = urlparse(model_uri)
+
+            # Allow safe schemes only
+            allowed_schemes = {"file", "http", "https", "s3", "gs", "azure", "dbfs"}
+            if parsed.scheme not in allowed_schemes:
+                return False
+
+            # Block suspicious patterns
+            suspicious_patterns = [
+                r"\.\./\.\.",  # Directory traversal
+                r"/etc/",  # System directories
+                r"/proc/",  # Process directories
+                r"/sys/",  # System directories
+                r"[;&|`$]",  # Command injection characters
+            ]
+
+            for pattern in suspicious_patterns:
+                if re.search(pattern, model_uri, re.IGNORECASE):
+                    return False
+
+        return True
+
+    except Exception:
+        # Any validation error should be treated as invalid
+        return False
 
 
 class RealtimeMLInferenceEngine:
@@ -259,9 +404,13 @@ class RealtimeMLInferenceEngine:
         self,
         config: RealtimeMLConfig | None = None,
         model_registry: ModelRegistry | None = None,
+        feature_store_client: FeatureStoreClient | None = None,
     ):
         self.config = config or get_streaming_config().realtime_ml
         self.model_registry = model_registry or ModelRegistry()
+        self.feature_store_client = (
+            feature_store_client or create_feature_store_client()
+        )
         self.model_cache = ModelCache(self.config.model_cache_size)
         self.feature_extractors: dict[str, FeatureExtractor] = {}
         self.logger = logger.bind(component="realtime_ml_engine")
@@ -271,10 +420,14 @@ class RealtimeMLInferenceEngine:
         self._error_count = 0
         self._total_inference_time_ms = 0.0
 
-        # Batch processing
-        self._batch_queue: list[PredictionRequest] = []
+        # Batch processing with thread safety
+        self._batch_queue: asyncio.Queue[PredictionRequest] = asyncio.Queue(
+            maxsize=1000
+        )
+        self._batch_results: dict[str, PredictionResult] = {}
         self._batch_task: asyncio.Task | None = None
         self._is_running = False
+        self._batch_lock = asyncio.Lock()
 
     async def start(self) -> None:
         """Start the inference engine."""
@@ -303,9 +456,23 @@ class RealtimeMLInferenceEngine:
                 pass
 
         # Process remaining batch queue
-        if self._batch_queue:
-            await self._process_batch(self._batch_queue.copy())
-            self._batch_queue.clear()
+        remaining_requests = []
+        while not self._batch_queue.empty():
+            try:
+                request = await asyncio.wait_for(self._batch_queue.get(), timeout=0.1)
+                remaining_requests.append(request)
+            except TimeoutError:
+                break
+
+        if remaining_requests:
+            batch_results = await self._process_batch(remaining_requests)
+            # Store results for any waiting predict calls
+            async with self._batch_lock:
+                for result in batch_results:
+                    self._batch_results[result.request_id] = result
+
+        # Clean up model cache
+        self.model_cache.clear_all()
 
         self.logger.info(
             "Realtime ML inference engine stopped",
@@ -325,36 +492,92 @@ class RealtimeMLInferenceEngine:
         )
 
     async def predict_from_event(
-        self, event: EventSchema, model_name: str, model_version: str | None = None
+        self,
+        event: EventSchema,
+        model_name: str,
+        model_version: str | None = None,
+        use_feature_store: bool = True,
     ) -> PredictionResult | None:
         """Make prediction from event data."""
-        # Extract features from event
-        extractor = self.feature_extractors.get(event.event_type.value)
-        if not extractor:
-            # Use default extractor
-            extractor = DefaultFeatureExtractor()
+        try:
+            # Extract basic features from event
+            extractor = self.feature_extractors.get(event.event_type.value)
+            if not extractor:
+                # Use default extractor
+                extractor = DefaultFeatureExtractor()
 
-        features = extractor.extract_features(event)
-        if not features:
+            event_features = extractor.extract_features(event)
+            if not event_features:
+                return PredictionResult(
+                    request_id=f"event_{event.event_id}",
+                    model_name=model_name,
+                    model_version=model_version or "unknown",
+                    prediction=None,
+                    status=PredictionStatus.FEATURE_ERROR,
+                    error_message="Failed to extract features from event",
+                )
+
+            # Enhance with feature store features if enabled
+            if use_feature_store and event_features.entity_id:
+                try:
+                    # Get additional features from feature store
+                    feature_store_features = await self._get_feature_store_features(
+                        entity_id=event_features.entity_id,
+                        model_name=model_name,
+                        event_features=event_features.features,
+                    )
+
+                    # Merge features
+                    enhanced_features = {
+                        **event_features.features,
+                        **feature_store_features,
+                    }
+
+                    event_features = FeatureVector(
+                        features=enhanced_features,
+                        timestamp=event_features.timestamp,
+                        entity_id=event_features.entity_id,
+                        metadata={
+                            **event_features.metadata,
+                            "feature_store_enhanced": True,
+                        },
+                    )
+
+                except Exception as fs_error:
+                    self.logger.warning(
+                        "Failed to get feature store features, using event features only",
+                        event_id=event.event_id,
+                        entity_id=event_features.entity_id,
+                        error=str(fs_error),
+                    )
+                    # Continue with event features only
+
+            # Create prediction request
+            request = PredictionRequest(
+                model_name=model_name,
+                model_version=model_version,
+                features=event_features,
+                event=event,
+                request_id=f"event_{event.event_id}",
+            )
+
+            return await self.predict(request)
+
+        except Exception as error:
+            self.logger.error(
+                "Error in predict_from_event",
+                event_id=event.event_id,
+                model_name=model_name,
+                error=str(error),
+            )
             return PredictionResult(
                 request_id=f"event_{event.event_id}",
                 model_name=model_name,
                 model_version=model_version or "unknown",
                 prediction=None,
-                status=PredictionStatus.FEATURE_ERROR,
-                error_message="Failed to extract features from event",
+                status=PredictionStatus.ERROR,
+                error_message=str(error),
             )
-
-        # Create prediction request
-        request = PredictionRequest(
-            model_name=model_name,
-            model_version=model_version,
-            features=features,
-            event=event,
-            request_id=f"event_{event.event_id}",
-        )
-
-        return await self.predict(request)
 
     async def predict(self, request: PredictionRequest) -> PredictionResult | None:
         """Make prediction from request."""
@@ -364,23 +587,32 @@ class RealtimeMLInferenceEngine:
             # Handle batch vs single prediction
             if (
                 self.config.batch_inference
-                and len(self._batch_queue) < self.config.max_batch_size
+                and self._batch_queue.qsize() < self.config.max_batch_size
             ):
-                # Add to batch queue
-                self._batch_queue.append(request)
+                # Add to batch queue with timeout
+                try:
+                    await asyncio.wait_for(
+                        self._batch_queue.put(request),
+                        timeout=1.0,  # 1 second timeout for queue full
+                    )
 
-                # Wait for batch to be processed
-                timeout_seconds = request.timeout_ms / 1000
-                deadline = time.time() + timeout_seconds
+                    # Wait for result from batch processing
+                    timeout_seconds = request.timeout_ms / 1000
+                    deadline = time.time() + timeout_seconds
 
-                while time.time() < deadline:
-                    # Check if request was processed (removed from queue)
-                    if request not in self._batch_queue:
-                        break
-                    await asyncio.sleep(0.01)  # 10ms polling
+                    while time.time() < deadline:
+                        async with self._batch_lock:
+                            if request.request_id in self._batch_results:
+                                result = self._batch_results.pop(request.request_id)
+                                return result
+                        await asyncio.sleep(0.01)  # 10ms polling
 
-                # Request might have been processed in batch
-                return None  # Results handled via batch callback
+                    # Timeout waiting for batch result, fall back to single prediction
+                    return await self._single_predict(request)
+
+                except TimeoutError:
+                    # Queue is full, fall back to single prediction
+                    return await self._single_predict(request)
 
             else:
                 # Single prediction
@@ -435,6 +667,13 @@ class RealtimeMLInferenceEngine:
                 import mlflow.pyfunc
 
                 model_uri = f"models:/{model_version.name}/{model_version.version}"
+
+                # Validate model URI for security
+                if not _validate_model_uri(model_uri):
+                    raise ValueError(
+                        f"Invalid or potentially unsafe model URI: {model_uri}"
+                    )
+
                 model = mlflow.pyfunc.load_model(model_uri)
                 self.model_cache.put_model(model_key, model)
 
@@ -545,35 +784,132 @@ class RealtimeMLInferenceEngine:
             )
             return None
 
+    async def _get_feature_store_features(
+        self,
+        entity_id: str,
+        model_name: str,
+        event_features: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Get additional features from feature store."""
+        try:
+            # Determine which features to request from feature store
+            # This could be configured per model or determined dynamically
+            feature_names = self._get_required_feature_store_features(model_name)
+
+            if not feature_names:
+                return {}
+
+            # Get features from feature store
+            feature_responses = await self.feature_store_client.get_features(
+                entity_ids=[entity_id],
+                feature_names=feature_names,
+                include_real_time=True,
+            )
+
+            if feature_responses:
+                return feature_responses[0].features
+
+            return {}
+
+        except Exception as error:
+            self.logger.error(
+                "Failed to get feature store features",
+                entity_id=entity_id,
+                model_name=model_name,
+                error=str(error),
+            )
+            return {}
+
+    def _get_required_feature_store_features(self, model_name: str) -> list[str]:
+        """Get list of required feature store features for a model."""
+        # This could be configured per model or retrieved from model metadata
+        # For now, return a default set of common features
+        common_features = [
+            "user_age",
+            "user_income",
+            "user_category_preference",
+            "item_price",
+            "item_rating",
+            "item_category",
+            "user_session_length",
+            "item_popularity_score",
+            "user_affinity_score",
+        ]
+
+        # Model-specific features could be added here
+        model_specific_features = {
+            "recommendation_model": [
+                "user_purchase_history_7d",
+                "user_click_through_rate",
+                "item_conversion_rate",
+            ],
+            "fraud_detection_model": [
+                "user_risk_score",
+                "transaction_velocity",
+                "device_fingerprint",
+            ],
+        }
+
+        features = common_features.copy()
+        if model_name in model_specific_features:
+            features.extend(model_specific_features[model_name])
+
+        return features
+
     async def _process_batch_queue(self) -> None:
         """Process batch queue periodically."""
+        batch = []
+        last_batch_time = time.time()
+
         while self._is_running:
             try:
-                if len(self._batch_queue) >= self.config.max_batch_size:
-                    # Process full batch
-                    batch = self._batch_queue[: self.config.max_batch_size]
-                    self._batch_queue = self._batch_queue[self.config.max_batch_size :]
-                    await self._process_batch(batch)
+                # Try to get a request from the queue with a timeout
+                try:
+                    request = await asyncio.wait_for(
+                        self._batch_queue.get(),
+                        timeout=self.config.batch_timeout_ms / 1000,
+                    )
+                    batch.append(request)
+                except TimeoutError:
+                    # Timeout occurred, process current batch if not empty
+                    if batch:
+                        await self._process_and_store_batch(batch)
+                        batch = []
+                        last_batch_time = time.time()
+                    continue
 
-                elif self._batch_queue:
-                    # Wait for batch timeout
-                    await asyncio.sleep(self.config.batch_timeout_ms / 1000)
+                # Check if we should process the batch
+                current_time = time.time()
+                should_process = len(batch) >= self.config.max_batch_size or (
+                    batch
+                    and (current_time - last_batch_time)
+                    >= (self.config.batch_timeout_ms / 1000)
+                )
 
-                    if self._batch_queue:
-                        # Process partial batch
-                        batch = self._batch_queue.copy()
-                        self._batch_queue.clear()
-                        await self._process_batch(batch)
-
-                else:
-                    # No items in queue, wait a bit
-                    await asyncio.sleep(0.1)
+                if should_process:
+                    await self._process_and_store_batch(batch)
+                    batch = []
+                    last_batch_time = current_time
 
             except asyncio.CancelledError:
+                # Process any remaining batch before exiting
+                if batch:
+                    await self._process_and_store_batch(batch)
                 break
             except Exception as e:
                 self.logger.error("Error in batch processing", error=str(e))
+                # Clear the current batch on error to avoid getting stuck
+                batch = []
                 await asyncio.sleep(1)  # Backoff on error
+
+    async def _process_and_store_batch(self, batch: list[PredictionRequest]) -> None:
+        """Process batch and store results for waiting predict calls."""
+        batch_results = await self._process_batch(batch)
+
+        # Store results for waiting predict calls
+        async with self._batch_lock:
+            for result in batch_results:
+                self._batch_results[result.request_id] = result
 
     async def _process_batch(
         self, batch: list[PredictionRequest]
@@ -658,6 +994,13 @@ class RealtimeMLInferenceEngine:
                 model_uri = (
                     f"models:/{model_version_obj.name}/{model_version_obj.version}"
                 )
+
+                # Validate model URI for security
+                if not _validate_model_uri(model_uri):
+                    raise ValueError(
+                        f"Invalid or potentially unsafe model URI: {model_uri}"
+                    )
+
                 model = mlflow.pyfunc.load_model(model_uri)
                 self.model_cache.put_model(model_key, model)
 
@@ -770,7 +1113,7 @@ class RealtimeMLInferenceEngine:
             "success_rate": self._inference_count
             / max(self._inference_count + self._error_count, 1),
             "average_inference_time_ms": avg_inference_time,
-            "batch_queue_size": len(self._batch_queue),
+            "batch_queue_size": self._batch_queue.qsize(),
             "model_cache": self.model_cache.get_stats(),
             "feature_extractors": list(self.feature_extractors.keys()),
         }
@@ -783,9 +1126,12 @@ class RealtimeMLPipeline:
         self,
         config: RealtimeMLConfig | None = None,
         model_registry: ModelRegistry | None = None,
+        feature_store_client: FeatureStoreClient | None = None,
     ):
         self.config = config or get_streaming_config().realtime_ml
-        self.inference_engine = RealtimeMLInferenceEngine(config, model_registry)
+        self.inference_engine = RealtimeMLInferenceEngine(
+            config, model_registry, feature_store_client
+        )
         self.logger = logger.bind(component="realtime_ml_pipeline")
         self._prediction_handlers: list[Callable[[PredictionResult], None]] = []
 
