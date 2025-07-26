@@ -57,8 +57,14 @@ RUN mkdir -p /tmp /home/streaming/.cache /home/streaming/logs \
 # Switch to non-root user
 USER streaming
 
-# Add health check script
+# Add health check script and entrypoint
 COPY --chown=streaming:streaming docker/streaming-analytics/healthcheck.py ./healthcheck.py
+COPY --chown=streaming:streaming docker/streaming-analytics/entrypoint.sh ./entrypoint.sh
+
+# Make entrypoint executable
+USER root
+RUN chmod +x /home/streaming/entrypoint.sh
+USER streaming
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
@@ -73,5 +79,5 @@ LABEL maintainer="streaming-analytics-team" \
       description="Streaming Analytics Platform" \
       component="streaming-analytics"
 
-# Default command (can be overridden)
-CMD ["python", "-m", "libs.streaming_analytics.websocket_server"]
+# Use entrypoint script for flexible service configuration
+ENTRYPOINT ["./entrypoint.sh"]

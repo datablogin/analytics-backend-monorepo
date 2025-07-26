@@ -68,8 +68,8 @@ spec:
     apiVersion: apps/v1
     kind: Deployment
     name: stream-processor
-  minReplicas: 6
-  maxReplicas: 50
+  minReplicas: 1  # Limited to 1 due to PVC sharing constraint
+  maxReplicas: 5  # Conservative scaling until converted to StatefulSet
   metrics:
   - type: Resource
     resource:

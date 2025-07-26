@@ -23,19 +23,19 @@ sources:
 
 dependencies:
 - name: postgresql
-  version: "12.x.x"
+  version: "12.12.10"  # Pinned to stable LTS version
   repository: "https://charts.bitnami.com/bitnami"
   condition: postgresql.enabled
   tags:
     - database
 - name: redis
-  version: "17.x.x" 
+  version: "17.15.6"   # Pinned to stable version with security fixes
   repository: "https://charts.bitnami.com/bitnami"
   condition: redis.enabled
   tags:
     - cache
 - name: kafka
-  version: "22.x.x"
+  version: "22.1.5"    # Pinned to stable version with latest fixes
   repository: "https://charts.bitnami.com/bitnami"
   condition: kafka.enabled
   tags:

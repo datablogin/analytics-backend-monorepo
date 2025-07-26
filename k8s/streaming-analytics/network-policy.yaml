@@ -31,8 +31,27 @@ spec:
     ports:
     - protocol: TCP
       port: 8080  # Metrics endpoint
-  # Allow external traffic to WebSocket service
-  - from: []
+  # Allow external traffic to WebSocket service only from ingress controllers and load balancers
+  # SECURITY: Restrict this to specific source CIDRs in production
+  - from:
+    # Allow traffic from ingress controllers (adjust labels as needed)
+    - namespaceSelector:
+        matchLabels:
+          name: ingress-nginx
+    # Allow traffic from istio ingress gateways
+    - namespaceSelector:
+        matchLabels:
+          name: istio-system
+      podSelector:
+        matchLabels:
+          app: istio-proxy
+    # Allow traffic from specific IP ranges (uncomment and configure for production)
+    # - ipBlock:
+    #     cidr: 10.0.0.0/8      # Internal corporate network
+    # - ipBlock:
+    #     cidr: 172.16.0.0/12   # Private network ranges
+    # - ipBlock:
+    #     cidr: 192.168.0.0/16  # Private network ranges
     ports:
     - protocol: TCP
       port: 8765  # WebSocket port
@@ -101,8 +120,27 @@ spec:
   - Ingress
   - Egress
   ingress:
-  # Allow all traffic to WebSocket port (handled by load balancer)
-  - ports:
+  # Allow WebSocket traffic only from ingress controllers and authorized sources
+  - from:
+    # Allow traffic from ingress controllers
+    - namespaceSelector:
+        matchLabels:
+          name: ingress-nginx
+    # Allow traffic from istio ingress gateways  
+    - namespaceSelector:
+        matchLabels:
+          name: istio-system
+      podSelector:
+        matchLabels:
+          app: istio-proxy
+    # Allow traffic from load balancer controllers
+    - namespaceSelector:
+        matchLabels:
+          name: kube-system
+      podSelector:
+        matchLabels:
+          app: aws-load-balancer-controller
+    ports:
     - protocol: TCP
       port: 8765
   # Allow metrics scraping

@@ -8,12 +8,15 @@ metadata:
     component: streaming-analytics
     version: v1
 spec:
-  replicas: 6
+  # IMPORTANT: Using shared PVC with multiple replicas requires careful coordination
+  # Consider converting to StatefulSet for independent storage per replica
+  # For now, using replica count of 1 with PVC for state persistence
+  replicas: 1
   strategy:
     type: RollingUpdate
     rollingUpdate:
-      maxUnavailable: 2
-      maxSurge: 3
+      maxUnavailable: 0
+      maxSurge: 1
   selector:
     matchLabels:
       app: stream-processor
@@ -132,8 +135,8 @@ spec:
         emptyDir:
           sizeLimit: 2Gi
       - name: rocksdb-data
-        emptyDir:
-          sizeLimit: 10Gi
+        persistentVolumeClaim:
+          claimName: rocksdb-data-pvc
       terminationGracePeriodSeconds: 120
       dnsPolicy: ClusterFirst
       restartPolicy: Always
@@ -177,3 +180,23 @@ spec:
     protocol: TCP
   type: ClusterIP
   clusterIP: None  # Headless service for StatefulSet-like behavior
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: rocksdb-data-pvc
+  namespace: streaming-analytics
+  labels:
+    app: stream-processor
+    component: streaming-analytics
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: gp3  # Use appropriate storage class for your environment
+  resources:
+    requests:
+      storage: 20Gi  # Increased from 10Gi for better performance
+  # Optional: Add volume selector if needed
+  # selector:
+  #   matchLabels:
+  #     app: stream-processor
