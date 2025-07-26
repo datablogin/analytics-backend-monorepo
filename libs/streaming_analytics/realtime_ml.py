@@ -226,10 +226,12 @@ class ModelCache:
         """Put model in cache with memory management."""
         # Estimate model size (rough approximation)
         model_size_mb = self._estimate_model_size(model)
-        
+
         # Evict models if needed based on size or count limits
-        while (len(self.cache) >= self.max_size or 
-               self.total_memory_mb + model_size_mb > self.max_memory_mb):
+        while (
+            len(self.cache) >= self.max_size
+            or self.total_memory_mb + model_size_mb > self.max_memory_mb
+        ):
             if not self.cache:  # Prevent infinite loop
                 break
             self._evict_lru()
@@ -240,11 +242,11 @@ class ModelCache:
         self.total_memory_mb += model_size_mb
 
         self.logger.info(
-            "Model cached", 
-            model_key=model_key, 
+            "Model cached",
+            model_key=model_key,
             cache_size=len(self.cache),
             model_size_mb=model_size_mb,
-            total_memory_mb=self.total_memory_mb
+            total_memory_mb=self.total_memory_mb,
         )
 
     def remove_model(self, model_key: str) -> None:
@@ -252,27 +254,29 @@ class ModelCache:
         if model_key in self.cache:
             # Clean up model object explicitly
             model, _ = self.cache[model_key]
-            if hasattr(model, 'close'):
+            if hasattr(model, "close"):
                 try:
                     model.close()
                 except Exception as e:
-                    self.logger.warning("Error closing model", model_key=model_key, error=str(e))
-            
+                    self.logger.warning(
+                        "Error closing model", model_key=model_key, error=str(e)
+                    )
+
             # Update memory tracking
             model_size = self.model_sizes.get(model_key, 0)
             self.total_memory_mb -= model_size
-            
+
             # Remove from all tracking dicts
             del self.cache[model_key]
             del self.access_times[model_key]
             if model_key in self.model_sizes:
                 del self.model_sizes[model_key]
-                
+
             self.logger.info(
-                "Model removed from cache", 
+                "Model removed from cache",
                 model_key=model_key,
                 freed_memory_mb=model_size,
-                remaining_memory_mb=self.total_memory_mb
+                remaining_memory_mb=self.total_memory_mb,
             )
 
     def _evict_lru(self) -> None:
@@ -293,54 +297,56 @@ class ModelCache:
             "total_memory_mb": self.total_memory_mb,
             "max_memory_mb": self.max_memory_mb,
             "cached_models": list(self.cache.keys()),
-            "memory_utilization": self.total_memory_mb / self.max_memory_mb if self.max_memory_mb > 0 else 0,
+            "memory_utilization": self.total_memory_mb / self.max_memory_mb
+            if self.max_memory_mb > 0
+            else 0,
         }
-    
+
     def _estimate_model_size(self, model: Any) -> int:
         """Estimate model memory usage in MB."""
         try:
             import sys
-            
+
             # Try to get actual size if available
-            if hasattr(model, 'get_memory_usage'):
+            if hasattr(model, "get_memory_usage"):
                 return model.get_memory_usage()
-            
+
             # Rough estimation based on object size
             size_bytes = sys.getsizeof(model)
-            
+
             # For ML models, multiply by factor to account for parameters
-            if hasattr(model, 'coef_') or hasattr(model, 'feature_importances_'):
+            if hasattr(model, "coef_") or hasattr(model, "feature_importances_"):
                 size_bytes *= 10  # sklearn models
-            elif hasattr(model, 'get_weights'):
+            elif hasattr(model, "get_weights"):
                 size_bytes *= 50  # neural network models
             else:
-                size_bytes *= 5   # default multiplier
-                
+                size_bytes *= 5  # default multiplier
+
             return max(1, size_bytes // (1024 * 1024))  # Convert to MB, minimum 1MB
         except Exception:
             return 10  # Default 10MB estimate
-    
+
     def clear_all(self) -> None:
         """Clear all models from cache with proper cleanup."""
         models_to_remove = list(self.cache.keys())
         for model_key in models_to_remove:
             self.remove_model(model_key)
-        
+
         self.logger.info("All models cleared from cache")
-    
+
     def cleanup_expired_models(self, max_age_minutes: int = 60) -> None:
         """Remove models older than specified age."""
         current_time = datetime.utcnow()
         expired_keys = []
-        
+
         for model_key, (_, cached_at) in self.cache.items():
             age_minutes = (current_time - cached_at).total_seconds() / 60
             if age_minutes > max_age_minutes:
                 expired_keys.append(model_key)
-        
+
         for key in expired_keys:
             self.remove_model(key)
-            
+
         if expired_keys:
             self.logger.info(f"Cleaned up {len(expired_keys)} expired models")
 
@@ -351,41 +357,41 @@ def _validate_model_uri(model_uri: str) -> bool:
         # Check for basic format requirements
         if not model_uri or not isinstance(model_uri, str):
             return False
-        
+
         # Validate against known safe patterns
         # MLflow model registry URIs: models:/<model_name>/<version_or_stage>
-        mlflow_registry_pattern = r'^models:/[a-zA-Z0-9_\-\.]+/[a-zA-Z0-9_\-\.]+$'
-        
+        mlflow_registry_pattern = r"^models:/[a-zA-Z0-9_\-\.]+/[a-zA-Z0-9_\-\.]+$"
+
         # MLflow artifact URIs (local, S3, etc.)
         # Allow common safe schemes but block dangerous ones
-        if model_uri.startswith('models:/'):
+        if model_uri.startswith("models:/"):
             # MLflow model registry format
             if not re.match(mlflow_registry_pattern, model_uri):
                 return False
         else:
             # Parse as URL for other formats
             parsed = urlparse(model_uri)
-            
+
             # Allow safe schemes only
-            allowed_schemes = {'file', 'http', 'https', 's3', 'gs', 'azure', 'dbfs'}
+            allowed_schemes = {"file", "http", "https", "s3", "gs", "azure", "dbfs"}
             if parsed.scheme not in allowed_schemes:
                 return False
-            
+
             # Block suspicious patterns
             suspicious_patterns = [
-                r'\.\./\.\.',  # Directory traversal
-                r'/etc/',      # System directories
-                r'/proc/',     # Process directories  
-                r'/sys/',      # System directories
-                r'[;&|`$]',    # Command injection characters
+                r"\.\./\.\.",  # Directory traversal
+                r"/etc/",  # System directories
+                r"/proc/",  # Process directories
+                r"/sys/",  # System directories
+                r"[;&|`$]",  # Command injection characters
             ]
-            
+
             for pattern in suspicious_patterns:
                 if re.search(pattern, model_uri, re.IGNORECASE):
                     return False
-        
+
         return True
-        
+
     except Exception:
         # Any validation error should be treated as invalid
         return False
@@ -415,7 +421,9 @@ class RealtimeMLInferenceEngine:
         self._total_inference_time_ms = 0.0
 
         # Batch processing with thread safety
-        self._batch_queue: asyncio.Queue[PredictionRequest] = asyncio.Queue(maxsize=1000)
+        self._batch_queue: asyncio.Queue[PredictionRequest] = asyncio.Queue(
+            maxsize=1000
+        )
         self._batch_results: dict[str, PredictionResult] = {}
         self._batch_task: asyncio.Task | None = None
         self._is_running = False
@@ -453,9 +461,9 @@ class RealtimeMLInferenceEngine:
             try:
                 request = await asyncio.wait_for(self._batch_queue.get(), timeout=0.1)
                 remaining_requests.append(request)
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 break
-        
+
         if remaining_requests:
             batch_results = await self._process_batch(remaining_requests)
             # Store results for any waiting predict calls
@@ -585,24 +593,24 @@ class RealtimeMLInferenceEngine:
                 try:
                     await asyncio.wait_for(
                         self._batch_queue.put(request),
-                        timeout=1.0  # 1 second timeout for queue full
+                        timeout=1.0,  # 1 second timeout for queue full
                     )
-                    
+
                     # Wait for result from batch processing
                     timeout_seconds = request.timeout_ms / 1000
                     deadline = time.time() + timeout_seconds
-                    
+
                     while time.time() < deadline:
                         async with self._batch_lock:
                             if request.request_id in self._batch_results:
                                 result = self._batch_results.pop(request.request_id)
                                 return result
                         await asyncio.sleep(0.01)  # 10ms polling
-                    
+
                     # Timeout waiting for batch result, fall back to single prediction
                     return await self._single_predict(request)
-                    
-                except asyncio.TimeoutError:
+
+                except TimeoutError:
                     # Queue is full, fall back to single prediction
                     return await self._single_predict(request)
 
@@ -659,11 +667,13 @@ class RealtimeMLInferenceEngine:
                 import mlflow.pyfunc
 
                 model_uri = f"models:/{model_version.name}/{model_version.version}"
-                
+
                 # Validate model URI for security
                 if not _validate_model_uri(model_uri):
-                    raise ValueError(f"Invalid or potentially unsafe model URI: {model_uri}")
-                    
+                    raise ValueError(
+                        f"Invalid or potentially unsafe model URI: {model_uri}"
+                    )
+
                 model = mlflow.pyfunc.load_model(model_uri)
                 self.model_cache.put_model(model_key, model)
 
@@ -850,31 +860,32 @@ class RealtimeMLInferenceEngine:
         """Process batch queue periodically."""
         batch = []
         last_batch_time = time.time()
-        
+
         while self._is_running:
             try:
                 # Try to get a request from the queue with a timeout
                 try:
                     request = await asyncio.wait_for(
-                        self._batch_queue.get(), 
-                        timeout=self.config.batch_timeout_ms / 1000
+                        self._batch_queue.get(),
+                        timeout=self.config.batch_timeout_ms / 1000,
                     )
                     batch.append(request)
-                except asyncio.TimeoutError:
+                except TimeoutError:
                     # Timeout occurred, process current batch if not empty
                     if batch:
                         await self._process_and_store_batch(batch)
                         batch = []
                         last_batch_time = time.time()
                     continue
-                
+
                 # Check if we should process the batch
                 current_time = time.time()
-                should_process = (
-                    len(batch) >= self.config.max_batch_size or 
-                    (batch and (current_time - last_batch_time) >= (self.config.batch_timeout_ms / 1000))
+                should_process = len(batch) >= self.config.max_batch_size or (
+                    batch
+                    and (current_time - last_batch_time)
+                    >= (self.config.batch_timeout_ms / 1000)
                 )
-                
+
                 if should_process:
                     await self._process_and_store_batch(batch)
                     batch = []
@@ -894,12 +905,12 @@ class RealtimeMLInferenceEngine:
     async def _process_and_store_batch(self, batch: list[PredictionRequest]) -> None:
         """Process batch and store results for waiting predict calls."""
         batch_results = await self._process_batch(batch)
-        
+
         # Store results for waiting predict calls
         async with self._batch_lock:
             for result in batch_results:
                 self._batch_results[result.request_id] = result
-    
+
     async def _process_batch(
         self, batch: list[PredictionRequest]
     ) -> list[PredictionResult]:
@@ -983,11 +994,13 @@ class RealtimeMLInferenceEngine:
                 model_uri = (
                     f"models:/{model_version_obj.name}/{model_version_obj.version}"
                 )
-                
+
                 # Validate model URI for security
                 if not _validate_model_uri(model_uri):
-                    raise ValueError(f"Invalid or potentially unsafe model URI: {model_uri}")
-                    
+                    raise ValueError(
+                        f"Invalid or potentially unsafe model URI: {model_uri}"
+                    )
+
                 model = mlflow.pyfunc.load_model(model_uri)
                 self.model_cache.put_model(model_key, model)
 

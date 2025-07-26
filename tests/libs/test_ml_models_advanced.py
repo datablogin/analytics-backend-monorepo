@@ -148,7 +148,9 @@ class TestModelVersionManager:
 
         assert comparison["model_name"] == "test_model"
         assert "performance_comparison" in comparison
-        assert comparison["performance_comparison"]["accuracy"]["difference"] == pytest.approx(0.03, abs=1e-6)
+        assert comparison["performance_comparison"]["accuracy"][
+            "difference"
+        ] == pytest.approx(0.03, abs=1e-6)
 
 
 class TestABTestingManager:
@@ -539,11 +541,11 @@ class TestIntegratedMLPipeline:
     @pytest.mark.asyncio
     async def test_end_to_end_prediction_with_features(self):
         """Test end-to-end prediction with feature store integration."""
+        # Create mock components
+        from libs.streaming_analytics.config import RealtimeMLConfig
         from libs.streaming_analytics.event_store import EventSchema, EventType
         from libs.streaming_analytics.realtime_ml import RealtimeMLInferenceEngine
 
-        # Create mock components
-        from libs.streaming_analytics.config import RealtimeMLConfig
         config = RealtimeMLConfig(model_cache_size=5)
 
         model_registry = MagicMock()
@@ -628,14 +630,20 @@ class TestIntegratedMLPipeline:
         ):
             # Configure mocks
             mock_registry = MagicMock()
-            mock_registry.get_latest_model_version.side_effect = Exception("No model found")
+            mock_registry.get_latest_model_version.side_effect = Exception(
+                "No model found"
+            )
             mock_version_registry.return_value = mock_registry
-            
+
             mock_metrics = MagicMock()
             mock_metrics_class.return_value = mock_metrics
-            
-            version_manager = ModelVersionManager(config=version_config, model_registry=mock_registry)
-            ab_manager = ABTestingManager(config=ab_config, model_registry=mock_ab_registry.return_value)
+
+            version_manager = ModelVersionManager(
+                config=version_config, model_registry=mock_registry
+            )
+            ab_manager = ABTestingManager(
+                config=ab_config, model_registry=mock_ab_registry.return_value
+            )
 
             # Create model versions
             version_manager.create_version(
