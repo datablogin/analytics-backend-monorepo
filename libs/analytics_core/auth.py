@@ -1,4 +1,5 @@
 import json
+import os
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
@@ -13,12 +14,29 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from libs.analytics_core.database import get_db_session
 from libs.analytics_core.models import Role, User, UserRole
 
+# Note: Import moved to function level to avoid circular import
+
 security = HTTPBearer()
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
-SECRET_KEY = "your-secret-key-change-in-production"
+# Use secrets manager for sensitive configuration
+SECRET_KEY = os.getenv(
+    "JWT_SECRET_KEY", "your-secret-key-change-in-production"
+)  # Will be replaced by secrets manager
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 30
+
+
+async def get_jwt_secret_key() -> str:
+    """Get JWT secret key from secrets manager."""
+    try:
+        from libs.streaming_analytics.secrets_manager import get_secret
+
+        secret_key = await get_secret("jwt_secret_key")
+        return secret_key or SECRET_KEY
+    except ImportError:
+        # Fallback if secrets manager is not available
+        return SECRET_KEY
 
 
 class TokenData(BaseModel):
@@ -42,7 +60,7 @@ class AuthService:
         return pwd_context.hash(password)
 
     @staticmethod
-    def create_access_token(
+    async def create_access_token(
         data: dict[str, Any], expires_delta: timedelta | None = None
     ) -> str:
         to_encode = data.copy()
@@ -53,29 +71,74 @@ class AuthService:
                 minutes=ACCESS_TOKEN_EXPIRE_MINUTES
             )
         to_encode.update({"exp": expire})
-        encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+        secret_key = await get_jwt_secret_key()
+        encoded_jwt = jwt.encode(to_encode, secret_key, algorithm=ALGORITHM)
         return encoded_jwt
 
     @staticmethod
-    def verify_token(token: str) -> TokenData:
+    async def verify_token(token: str) -> TokenData:
+        import time
+
+        # Add consistent timing to prevent timing attacks
+        start_time = time.time()
+
         try:
-            payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-            user_id: int = payload.get("sub")
-            permissions: list[str] = payload.get("permissions", [])
-            if user_id is None:
+            secret_key = await get_jwt_secret_key()
+            payload = jwt.decode(token, secret_key, algorithms=[ALGORITHM])
+
+            # Validate user_id
+            user_id_raw = payload.get("sub")
+            if user_id_raw is None:
+                # Ensure consistent timing for all error cases
+                elapsed = time.time() - start_time
+                if elapsed < 0.001:  # Minimum 1ms delay
+                    time.sleep(0.001 - elapsed)
                 raise HTTPException(
                     status_code=status.HTTP_401_UNAUTHORIZED,
                     detail="Invalid authentication credentials",
                     headers={"WWW-Authenticate": "Bearer"},
                 )
+
+            # Ensure user_id is an integer
+            try:
+                user_id = int(user_id_raw)
+                if user_id <= 0:
+                    raise ValueError("User ID must be positive")
+            except (ValueError, TypeError):
+                # Ensure consistent timing for all error cases
+                elapsed = time.time() - start_time
+                if elapsed < 0.001:  # Minimum 1ms delay
+                    time.sleep(0.001 - elapsed)
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Invalid authentication credentials",
+                    headers={"WWW-Authenticate": "Bearer"},
+                )
+
+            # Validate permissions
+            permissions_raw = payload.get("permissions", [])
+            if not isinstance(permissions_raw, list):
+                permissions = []
+            else:
+                # Ensure all permissions are strings
+                permissions = [str(p) for p in permissions_raw if p]
+
             return TokenData(user_id=user_id, permissions=permissions)
         except jwt.ExpiredSignatureError:
+            # Ensure consistent timing for all error cases
+            elapsed = time.time() - start_time
+            if elapsed < 0.001:  # Minimum 1ms delay
+                time.sleep(0.001 - elapsed)
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Token expired",
                 headers={"WWW-Authenticate": "Bearer"},
             )
         except (jwt.InvalidTokenError, jwt.DecodeError, ValueError, AttributeError):
+            # Ensure consistent timing for all error cases
+            elapsed = time.time() - start_time
+            if elapsed < 0.001:  # Minimum 1ms delay
+                time.sleep(0.001 - elapsed)
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Invalid authentication credentials",
@@ -122,7 +185,7 @@ async def get_current_user(
     credentials: HTTPAuthorizationCredentials = Depends(security),
     db: AsyncSession = Depends(get_db_session),
 ) -> User:
-    token_data = AuthService.verify_token(credentials.credentials)
+    token_data = await AuthService.verify_token(credentials.credentials)
 
     stmt = select(User).where(User.id == token_data.user_id, User.is_active)
     result = await db.execute(stmt)

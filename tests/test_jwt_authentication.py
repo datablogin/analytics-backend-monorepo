@@ -131,9 +131,9 @@ class TestPasswordHashing:
 
 
 class TestJWTTokens:
-    def test_create_access_token(self):
+    async def test_create_access_token(self):
         data = {"sub": "123", "permissions": ["read:data"]}
-        token = AuthService.create_access_token(data)
+        token = await AuthService.create_access_token(data)
 
         # Decode token to verify contents
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
@@ -141,30 +141,30 @@ class TestJWTTokens:
         assert payload["permissions"] == ["read:data"]
         assert "exp" in payload
 
-    def test_verify_valid_token(self):
+    async def test_verify_valid_token(self):
         data = {"sub": "123", "permissions": ["read:data"]}
-        token = AuthService.create_access_token(data)
+        token = await AuthService.create_access_token(data)
 
-        token_data = AuthService.verify_token(token)
+        token_data = await AuthService.verify_token(token)
         assert token_data.user_id == 123
         assert token_data.permissions == ["read:data"]
 
-    def test_verify_expired_token(self):
+    async def test_verify_expired_token(self):
         data = {"sub": "123", "permissions": ["read:data"]}
         # Create expired token
-        expired_token = AuthService.create_access_token(
+        expired_token = await AuthService.create_access_token(
             data, expires_delta=timedelta(seconds=-1)
         )
 
         with pytest.raises(Exception) as exc_info:
-            AuthService.verify_token(expired_token)
+            await AuthService.verify_token(expired_token)
         assert "Token expired" in str(exc_info.value)
 
-    def test_verify_invalid_token(self):
+    async def test_verify_invalid_token(self):
         invalid_token = "invalid.token.here"
 
         with pytest.raises(Exception) as exc_info:
-            AuthService.verify_token(invalid_token)
+            await AuthService.verify_token(invalid_token)
         assert "Invalid authentication credentials" in str(exc_info.value)
 
 

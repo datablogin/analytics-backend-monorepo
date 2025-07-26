@@ -7,16 +7,37 @@ from pydantic_settings import BaseSettings
 
 
 class KafkaConfig(BaseModel):
-    """Kafka cluster configuration."""
+    """Kafka cluster configuration with enhanced security."""
 
     bootstrap_servers: list[str] = Field(default=["localhost:9092"])
-    security_protocol: str = Field(default="PLAINTEXT")
-    sasl_mechanism: str | None = Field(default=None)
+    security_protocol: str = Field(
+        default="PLAINTEXT"
+    )  # PLAINTEXT, SSL, SASL_PLAINTEXT, SASL_SSL
+
+    # SASL Authentication
+    sasl_mechanism: str | None = Field(
+        default=None
+    )  # PLAIN, SCRAM-SHA-256, SCRAM-SHA-512, GSSAPI
     sasl_username: str | None = Field(default=None)
     sasl_password: str | None = Field(default=None)
+    sasl_kerberos_service_name: str | None = Field(default=None)
+
+    # SSL/TLS Configuration
     ssl_ca_location: str | None = Field(default=None)
     ssl_cert_location: str | None = Field(default=None)
     ssl_key_location: str | None = Field(default=None)
+    ssl_key_password: str | None = Field(default=None)
+    ssl_endpoint_identification_algorithm: str = Field(default="https")
+    ssl_check_hostname: bool = Field(default=True)
+
+    # ACL and Authorization
+    enable_acl: bool = Field(default=False)
+    principal_builder_class: str | None = Field(default=None)
+
+    # Encryption settings
+    enable_data_encryption: bool = Field(default=False)
+    encryption_key: str | None = Field(default=None)
+    compression_type: str = Field(default="gzip")  # none, gzip, snappy, lz4, zstd
 
     # Producer config
     producer_config: dict[str, Any] = Field(
