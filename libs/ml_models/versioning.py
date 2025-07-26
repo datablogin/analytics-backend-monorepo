@@ -13,6 +13,115 @@ from .registry import ModelRegistry
 logger = structlog.get_logger(__name__)
 
 
+class RollbackPermission:
+    """Permission levels for rollback operations."""
+    READ = "read"
+    ROLLBACK_LOW_RISK = "rollback_low_risk" 
+    ROLLBACK_MEDIUM_RISK = "rollback_medium_risk"
+    ROLLBACK_HIGH_RISK = "rollback_high_risk"
+    ROLLBACK_CRITICAL_RISK = "rollback_critical_risk"
+    ADMIN = "admin"
+
+
+def _validate_rollback_permissions(
+    user: str | None, 
+    required_permission: str, 
+    risk_level: str,
+    model_name: str | None = None
+) -> bool:
+    """Validate user permissions for rollback operations."""
+    # If no user specified, deny access
+    if not user:
+        logger.warning("Rollback attempted without user identification")
+        return False
+    
+    # System user has all permissions (for automated operations)
+    if user == "system":
+        return True
+    
+    # Map risk levels to required permissions
+    risk_permission_map = {
+        "low": RollbackPermission.ROLLBACK_LOW_RISK,
+        "medium": RollbackPermission.ROLLBACK_MEDIUM_RISK, 
+        "high": RollbackPermission.ROLLBACK_HIGH_RISK,
+        "critical": RollbackPermission.ROLLBACK_CRITICAL_RISK
+    }
+    
+    required_perm = risk_permission_map.get(risk_level, RollbackPermission.ROLLBACK_CRITICAL_RISK)
+    
+    # In a real implementation, this would check against an auth service
+    # For now, implement basic validation logic
+    
+    # Simulate permission checking (replace with actual auth integration)
+    user_permissions = _get_user_permissions(user, model_name)
+    
+    # Check if user has required permission or higher
+    permission_hierarchy = [
+        RollbackPermission.READ,
+        RollbackPermission.ROLLBACK_LOW_RISK,
+        RollbackPermission.ROLLBACK_MEDIUM_RISK,
+        RollbackPermission.ROLLBACK_HIGH_RISK,
+        RollbackPermission.ROLLBACK_CRITICAL_RISK,
+        RollbackPermission.ADMIN
+    ]
+    
+    try:
+        user_level = max([permission_hierarchy.index(perm) for perm in user_permissions if perm in permission_hierarchy])
+        required_level = permission_hierarchy.index(required_perm)
+        
+        has_permission = user_level >= required_level
+        
+        if not has_permission:
+            logger.warning(
+                "Insufficient permissions for rollback operation",
+                user=user,
+                required_permission=required_perm,
+                risk_level=risk_level,
+                model_name=model_name
+            )
+        
+        return has_permission
+        
+    except (ValueError, IndexError):
+        logger.warning(
+            "Invalid permission configuration",
+            user=user,
+            user_permissions=user_permissions,
+            required_permission=required_perm
+        )
+        return False
+
+
+def _get_user_permissions(user: str, model_name: str | None = None) -> list[str]:
+    """Get user permissions (placeholder implementation)."""
+    # In production, this would integrate with your auth/RBAC system
+    # For now, implement basic role simulation
+    
+    # Admin users have all permissions
+    if user.endswith("_admin") or user == "admin":
+        return [RollbackPermission.ADMIN]
+    
+    # ML engineers have medium to high risk permissions
+    if "engineer" in user.lower() or "ml_" in user.lower():
+        return [
+            RollbackPermission.READ,
+            RollbackPermission.ROLLBACK_LOW_RISK,
+            RollbackPermission.ROLLBACK_MEDIUM_RISK,
+            RollbackPermission.ROLLBACK_HIGH_RISK
+        ]
+    
+    # Data scientists have low to medium risk permissions
+    if "scientist" in user.lower() or "data_" in user.lower():
+        return [
+            RollbackPermission.READ,
+            RollbackPermission.ROLLBACK_LOW_RISK,
+            RollbackPermission.ROLLBACK_MEDIUM_RISK
+        ]
+    
+    # Default users have read and low risk permissions only
+    return [RollbackPermission.READ, RollbackPermission.ROLLBACK_LOW_RISK]
+
+
 class ModelVersioningConfig(BaseConfig):
     """Configuration for model versioning."""
 
@@ -573,11 +682,23 @@ class ModelVersionManager:
     def execute_rollback(
         self,
         rollback_plan: RollbackPlan,
+        executed_by: str,
         confirmation: bool = False,
         dry_run: bool = False,
     ) -> dict[str, Any]:
         """Execute a rollback plan."""
         try:
+            # Check rollback permissions
+            if not _validate_rollback_permissions(
+                user=executed_by,
+                required_permission="rollback",
+                risk_level=rollback_plan.risk_level,
+                model_name=rollback_plan.model_name
+            ):
+                raise PermissionError(
+                    f"User '{executed_by}' does not have permission to execute {rollback_plan.risk_level} risk rollback for model {rollback_plan.model_name}"
+                )
+            
             # Check confirmation requirement
             if rollback_plan.confirmation_required and not confirmation:
                 raise ValueError("Rollback confirmation is required")
@@ -669,6 +790,7 @@ class ModelVersionManager:
                 "Rollback execution completed",
                 model_name=rollback_plan.model_name,
                 target_version=rollback_plan.target_version,
+                executed_by=executed_by,
                 success=result["status"] == "success",
                 duration_seconds=total_duration,
             )
@@ -680,6 +802,7 @@ class ModelVersionManager:
                 "Failed to execute rollback",
                 model_name=rollback_plan.model_name,
                 target_version=rollback_plan.target_version,
+                executed_by=executed_by,
                 error=str(error),
             )
             raise
