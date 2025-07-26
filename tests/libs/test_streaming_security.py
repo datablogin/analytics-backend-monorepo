@@ -313,8 +313,8 @@ class TestDDoSProtection:
         app = MagicMock()
         return DDoSProtectionMiddleware(
             app,
-            requests_per_minute=5,
-            burst_requests_per_second=2,
+            requests_per_minute=120,  # Increased to allow burst_requests_per_second * 60
+            burst_requests_per_second=2,  # 2 * 60 = 120, which equals requests_per_minute
             max_concurrent_requests=3,
             suspicious_patterns_threshold=3,
             auto_ban_duration=60,
@@ -349,7 +349,7 @@ class TestDDoSProtection:
         assert ddos_middleware._check_rate_limit(ip, current_time) is False
 
         # Add requests up to the limit
-        for _ in range(5):
+        for _ in range(120):
             ddos_middleware._record_request(ip, current_time)
 
         # Should be rate limited now
