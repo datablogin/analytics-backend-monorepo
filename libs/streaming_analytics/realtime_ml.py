@@ -13,6 +13,10 @@ import numpy as np
 import structlog
 from mlflow.entities.model_registry import ModelVersion
 
+from libs.ml_models.feature_store_integration import (
+    FeatureStoreClient,
+    create_feature_store_client,
+)
 from libs.ml_models.registry import ModelRegistry
 
 from .config import RealtimeMLConfig, get_streaming_config
@@ -259,9 +263,13 @@ class RealtimeMLInferenceEngine:
         self,
         config: RealtimeMLConfig | None = None,
         model_registry: ModelRegistry | None = None,
+        feature_store_client: FeatureStoreClient | None = None,
     ):
         self.config = config or get_streaming_config().realtime_ml
         self.model_registry = model_registry or ModelRegistry()
+        self.feature_store_client = (
+            feature_store_client or create_feature_store_client()
+        )
         self.model_cache = ModelCache(self.config.model_cache_size)
         self.feature_extractors: dict[str, FeatureExtractor] = {}
         self.logger = logger.bind(component="realtime_ml_engine")
@@ -325,36 +333,92 @@ class RealtimeMLInferenceEngine:
         )
 
     async def predict_from_event(
-        self, event: EventSchema, model_name: str, model_version: str | None = None
+        self,
+        event: EventSchema,
+        model_name: str,
+        model_version: str | None = None,
+        use_feature_store: bool = True,
     ) -> PredictionResult | None:
         """Make prediction from event data."""
-        # Extract features from event
-        extractor = self.feature_extractors.get(event.event_type.value)
-        if not extractor:
-            # Use default extractor
-            extractor = DefaultFeatureExtractor()
+        try:
+            # Extract basic features from event
+            extractor = self.feature_extractors.get(event.event_type.value)
+            if not extractor:
+                # Use default extractor
+                extractor = DefaultFeatureExtractor()
 
-        features = extractor.extract_features(event)
-        if not features:
+            event_features = extractor.extract_features(event)
+            if not event_features:
+                return PredictionResult(
+                    request_id=f"event_{event.event_id}",
+                    model_name=model_name,
+                    model_version=model_version or "unknown",
+                    prediction=None,
+                    status=PredictionStatus.FEATURE_ERROR,
+                    error_message="Failed to extract features from event",
+                )
+
+            # Enhance with feature store features if enabled
+            if use_feature_store and event_features.entity_id:
+                try:
+                    # Get additional features from feature store
+                    feature_store_features = await self._get_feature_store_features(
+                        entity_id=event_features.entity_id,
+                        model_name=model_name,
+                        event_features=event_features.features,
+                    )
+
+                    # Merge features
+                    enhanced_features = {
+                        **event_features.features,
+                        **feature_store_features,
+                    }
+
+                    event_features = FeatureVector(
+                        features=enhanced_features,
+                        timestamp=event_features.timestamp,
+                        entity_id=event_features.entity_id,
+                        metadata={
+                            **event_features.metadata,
+                            "feature_store_enhanced": True,
+                        },
+                    )
+
+                except Exception as fs_error:
+                    self.logger.warning(
+                        "Failed to get feature store features, using event features only",
+                        event_id=event.event_id,
+                        entity_id=event_features.entity_id,
+                        error=str(fs_error),
+                    )
+                    # Continue with event features only
+
+            # Create prediction request
+            request = PredictionRequest(
+                model_name=model_name,
+                model_version=model_version,
+                features=event_features,
+                event=event,
+                request_id=f"event_{event.event_id}",
+            )
+
+            return await self.predict(request)
+
+        except Exception as error:
+            self.logger.error(
+                "Error in predict_from_event",
+                event_id=event.event_id,
+                model_name=model_name,
+                error=str(error),
+            )
             return PredictionResult(
                 request_id=f"event_{event.event_id}",
                 model_name=model_name,
                 model_version=model_version or "unknown",
                 prediction=None,
-                status=PredictionStatus.FEATURE_ERROR,
-                error_message="Failed to extract features from event",
+                status=PredictionStatus.ERROR,
+                error_message=str(error),
             )
-
-        # Create prediction request
-        request = PredictionRequest(
-            model_name=model_name,
-            model_version=model_version,
-            features=features,
-            event=event,
-            request_id=f"event_{event.event_id}",
-        )
-
-        return await self.predict(request)
 
     async def predict(self, request: PredictionRequest) -> PredictionResult | None:
         """Make prediction from request."""
@@ -544,6 +608,78 @@ class RealtimeMLInferenceEngine:
                 error=str(e),
             )
             return None
+
+    async def _get_feature_store_features(
+        self,
+        entity_id: str,
+        model_name: str,
+        event_features: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Get additional features from feature store."""
+        try:
+            # Determine which features to request from feature store
+            # This could be configured per model or determined dynamically
+            feature_names = self._get_required_feature_store_features(model_name)
+
+            if not feature_names:
+                return {}
+
+            # Get features from feature store
+            feature_responses = await self.feature_store_client.get_features(
+                entity_ids=[entity_id],
+                feature_names=feature_names,
+                include_real_time=True,
+            )
+
+            if feature_responses:
+                return feature_responses[0].features
+
+            return {}
+
+        except Exception as error:
+            self.logger.error(
+                "Failed to get feature store features",
+                entity_id=entity_id,
+                model_name=model_name,
+                error=str(error),
+            )
+            return {}
+
+    def _get_required_feature_store_features(self, model_name: str) -> list[str]:
+        """Get list of required feature store features for a model."""
+        # This could be configured per model or retrieved from model metadata
+        # For now, return a default set of common features
+        common_features = [
+            "user_age",
+            "user_income",
+            "user_category_preference",
+            "item_price",
+            "item_rating",
+            "item_category",
+            "user_session_length",
+            "item_popularity_score",
+            "user_affinity_score",
+        ]
+
+        # Model-specific features could be added here
+        model_specific_features = {
+            "recommendation_model": [
+                "user_purchase_history_7d",
+                "user_click_through_rate",
+                "item_conversion_rate",
+            ],
+            "fraud_detection_model": [
+                "user_risk_score",
+                "transaction_velocity",
+                "device_fingerprint",
+            ],
+        }
+
+        features = common_features.copy()
+        if model_name in model_specific_features:
+            features.extend(model_specific_features[model_name])
+
+        return features
 
     async def _process_batch_queue(self) -> None:
         """Process batch queue periodically."""
@@ -783,9 +919,12 @@ class RealtimeMLPipeline:
         self,
         config: RealtimeMLConfig | None = None,
         model_registry: ModelRegistry | None = None,
+        feature_store_client: FeatureStoreClient | None = None,
     ):
         self.config = config or get_streaming_config().realtime_ml
-        self.inference_engine = RealtimeMLInferenceEngine(config, model_registry)
+        self.inference_engine = RealtimeMLInferenceEngine(
+            config, model_registry, feature_store_client
+        )
         self.logger = logger.bind(component="realtime_ml_pipeline")
         self._prediction_handlers: list[Callable[[PredictionResult], None]] = []
 
