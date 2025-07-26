@@ -278,8 +278,8 @@ class DDoSProtectionMiddleware(BaseHTTPMiddleware):
     def __init__(
         self,
         app,
-        requests_per_minute: int = 100,
-        burst_requests_per_second: int = 10,
+        requests_per_minute: int = 600,  # Increased to allow burst_requests_per_second * 60
+        burst_requests_per_second: int = 10,  # 10 * 60 = 600, which equals requests_per_minute
         max_concurrent_requests: int = 50,
         suspicious_patterns_threshold: int = 5,
         auto_ban_duration: int = 3600,  # 1 hour

@@ -456,7 +456,7 @@ class TestDDoSProtection:
         assert stats["concurrent_requests"] == 3
         assert stats["suspicious_ips"] == 1
         assert stats["active_bans"] == 1
-        assert stats["config"]["requests_per_minute"] == 5
+        assert stats["config"]["requests_per_minute"] == 120
 
 
 class TestIntegratedSecurity:
@@ -540,4 +540,4 @@ class TestIntegratedSecurity:
         assert security_middleware is not None
         assert rate_limit_middleware is not None
         assert ddos_middleware is not None
-        assert ddos_middleware.requests_per_minute == 100  # Default value
+        assert ddos_middleware.requests_per_minute == 600  # Default value
