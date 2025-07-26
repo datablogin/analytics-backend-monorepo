@@ -35,14 +35,29 @@ class KafkaSecurityManager:
         """Initialize data encryption."""
         if self.config.encryption_key:
             # Use provided key
-            key_bytes = base64.urlsafe_b64decode(self.config.encryption_key.encode())
-            self._encryption_key = Fernet(key_bytes)
+            try:
+                key_bytes = base64.urlsafe_b64decode(self.config.encryption_key.encode())
+                self._encryption_key = Fernet(key_bytes)
+                self.logger.info("Encryption initialized with provided key")
+            except Exception as e:
+                self.logger.error("Failed to initialize encryption with provided key", error=str(e))
+                raise ValueError("Invalid encryption key provided") from e
         else:
-            # Generate a new key (should be stored securely in production)
-            self._encryption_key = Fernet(Fernet.generate_key())
-            self.logger.warning(
-                "Generated new encryption key - should be configured externally in production"
-            )
+            # Check if we're in production environment
+            import os
+            environment = os.getenv("ENVIRONMENT", "development").lower()
+
+            if environment in ("production", "prod"):
+                # In production, require explicit key configuration
+                self.logger.error("Encryption key must be explicitly configured in production")
+                raise ValueError("Encryption key is required in production environment")
+            else:
+                # Generate a new key only in development/test environments
+                self._encryption_key = Fernet(Fernet.generate_key())
+                self.logger.warning(
+                    "Generated new encryption key for development - configure externally for production",
+                    environment=environment
+                )
 
     def encrypt_data(self, data: bytes) -> bytes:
         """Encrypt data if encryption is enabled."""
@@ -640,6 +655,24 @@ class KafkaConsumerManager:
                                 message.value
                             )
                             event_data = json.loads(decrypted_data.decode("utf-8"))
+                        except (ValueError, UnicodeDecodeError) as decode_error:
+                            self.logger.error(
+                                "Failed to decode decrypted message",
+                                topic=message.topic,
+                                partition=message.partition,
+                                offset=message.offset,
+                                error=str(decode_error),
+                            )
+                            raise
+                        except json.JSONDecodeError as json_error:
+                            self.logger.error(
+                                "Failed to parse JSON from decrypted message",
+                                topic=message.topic,
+                                partition=message.partition,
+                                offset=message.offset,
+                                error=str(json_error),
+                            )
+                            raise
                         except Exception as decrypt_error:
                             self.logger.error(
                                 "Failed to decrypt message",

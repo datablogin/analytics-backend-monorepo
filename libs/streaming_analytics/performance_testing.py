@@ -15,6 +15,11 @@ from .event_store import EventSchema, EventType
 
 logger = structlog.get_logger(__name__)
 
+# Performance metrics constants
+QUANTILES_COUNT = 20
+P95_QUANTILE_INDEX = 18  # 95th percentile index for n=20 quantiles
+P99_PERCENTILE = 0.99
+
 
 @dataclass
 class PerformanceMetrics:
@@ -52,7 +57,7 @@ class PerformanceMetrics:
         """95th percentile latency in milliseconds."""
         if not self.latency_ms:
             return 0.0
-        return statistics.quantiles(self.latency_ms, n=20)[18]  # 95th percentile
+        return statistics.quantiles(self.latency_ms, n=QUANTILES_COUNT)[P95_QUANTILE_INDEX]
 
     @property
     def p99_latency_ms(self) -> float:
@@ -60,7 +65,7 @@ class PerformanceMetrics:
         if not self.latency_ms:
             return 0.0
         sorted_latencies = sorted(self.latency_ms)
-        index = int(0.99 * len(sorted_latencies))
+        index = int(P99_PERCENTILE * len(sorted_latencies))
         return sorted_latencies[min(index, len(sorted_latencies) - 1)]
 
     def to_dict(self) -> dict[str, Any]:
