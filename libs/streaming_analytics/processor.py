@@ -118,11 +118,13 @@ class StreamProcessor(ABC):
     async def start(self) -> None:
         """Start the stream processor."""
         self._is_running = True
+        self._last_stats_update = 0  # Invalidate cache on state change
         self.logger.info("Stream processor started")
 
     async def stop(self) -> None:
         """Stop the stream processor."""
         self._is_running = False
+        self._last_stats_update = 0  # Invalidate cache on state change
         self.logger.info(
             "Stream processor stopped",
             processed_count=self._processed_count,
