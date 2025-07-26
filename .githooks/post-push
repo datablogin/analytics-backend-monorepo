@@ -1,0 +1,28 @@
+#!/bin/bash
+
+# Post-push hook to automatically run Claude review for PR branches
+# This runs after every successful git push
+
+# Check if we're on a feature branch and if a PR exists
+CURRENT_BRANCH=$(git branch --show-current)
+
+# Only run for feature branches
+if [[ "$CURRENT_BRANCH" =~ ^(feature|fix|hotfix)/ ]]; then
+    echo "🔍 Checking if PR exists for branch: $CURRENT_BRANCH"
+    
+    # Check if PR exists for current branch
+    PR_NUM=$(gh pr view --json number -q .number 2>/dev/null || echo "")
+    
+    if [ -n "$PR_NUM" ]; then
+        echo "✅ Found PR #$PR_NUM for current branch"
+        echo "🤖 Running Claude review..."
+        
+        # Run the review script automatically
+        ./claude-review.sh --focus security "$PR_NUM"
+        
+        echo "✅ Claude review completed and posted to PR #$PR_NUM"
+    else
+        echo "ℹ️  No PR found for branch $CURRENT_BRANCH"
+        echo "   Create a PR first, then push again to trigger review"
+    fi
+fi

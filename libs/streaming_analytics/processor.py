@@ -1,6 +1,7 @@
 """Stream processing framework with windowing and aggregations."""
 
 import asyncio
+import time
 from abc import ABC, abstractmethod
 from collections import defaultdict
 from collections.abc import Callable
@@ -13,6 +14,7 @@ import structlog
 
 from .config import StreamProcessingConfig, get_streaming_config
 from .event_store import EventSchema
+from .performance_profiler import get_performance_profiler, profile_streaming_method
 
 logger = structlog.get_logger(__name__)
 
@@ -96,8 +98,19 @@ class StreamProcessor(ABC):
         self._is_running = False
         self._processed_count = 0
         self._error_count = 0
+        self._profiler = get_performance_profiler()
+
+        # Performance optimization: pre-allocate commonly used objects
+        self._stats_cache: dict[str, Any] = {
+            "is_running": False,
+            "processed_count": 0,
+            "error_count": 0,
+            "success_rate": 0.0,
+        }
+        self._last_stats_update = 0
 
     @abstractmethod
+    @profile_streaming_method("stream_processor", "process_event")
     async def process_event(self, event: EventSchema) -> Any | None:
         """Process a single event."""
         pass
@@ -105,11 +118,13 @@ class StreamProcessor(ABC):
     async def start(self) -> None:
         """Start the stream processor."""
         self._is_running = True
+        self._last_stats_update = 0  # Invalidate cache on state change
         self.logger.info("Stream processor started")
 
     async def stop(self) -> None:
         """Stop the stream processor."""
         self._is_running = False
+        self._last_stats_update = 0  # Invalidate cache on state change
         self.logger.info(
             "Stream processor stopped",
             processed_count=self._processed_count,
@@ -117,28 +132,47 @@ class StreamProcessor(ABC):
         )
 
     def get_stats(self) -> dict[str, Any]:
-        """Get processor statistics."""
-        return {
-            "is_running": self._is_running,
-            "processed_count": self._processed_count,
-            "error_count": self._error_count,
-            "success_rate": self._processed_count
-            / max(self._processed_count + self._error_count, 1),
-        }
+        """Get processor statistics with caching for performance."""
+        current_time = time.time()
+
+        # Cache stats for 100ms to avoid repeated calculations
+        if current_time - self._last_stats_update > 0.1:
+            total_events = self._processed_count + self._error_count
+            self._stats_cache.update(
+                {
+                    "is_running": self._is_running,
+                    "processed_count": self._processed_count,
+                    "error_count": self._error_count,
+                    "success_rate": self._processed_count / max(total_events, 1),
+                }
+            )
+            self._last_stats_update = current_time
+
+        return self._stats_cache.copy()
 
 
 class WindowManager:
-    """Manages time windows for stream processing."""
+    """Manages time windows for stream processing with memory optimization."""
 
     def __init__(self, config: StreamProcessingConfig):
         self.config = config
         self.logger = logger.bind(component="window_manager")
+        self._profiler = get_performance_profiler()
 
         # Window storage: key -> list of windows
         self._windows: dict[str, list[Window]] = defaultdict(list)
         self._window_timers: dict[str, asyncio.Task] = {}
         self._cleanup_task: asyncio.Task | None = None
         self._is_running = False
+
+        # Performance optimization: window pool for reuse
+        self._window_pool: list[Window] = []
+        self._max_pool_size = 1000
+
+        # Memory management
+        self._window_count_limit = 10000  # Prevent memory leaks
+        self._last_memory_check = 0
+        self._memory_check_interval = 30  # seconds
 
     async def start(self) -> None:
         """Start the window manager."""
@@ -166,14 +200,21 @@ class WindowManager:
             task.cancel()
 
         self._window_timers.clear()
+
+        # Return all windows to pool before clearing
+        for windows in self._windows.values():
+            for window in windows:
+                self._return_window_to_pool(window)
+
         self._windows.clear()
 
         self.logger.info("Window manager stopped")
 
+    @profile_streaming_method("window_manager", "create_tumbling_window")
     def create_tumbling_window(
         self, key: str, size_ms: int, start_time: datetime | None = None
     ) -> Window:
-        """Create a tumbling window."""
+        """Create a tumbling window with object pooling."""
         if start_time is None:
             start_time = datetime.utcnow()
 
@@ -184,16 +225,30 @@ class WindowManager:
         window_start = datetime.fromtimestamp(aligned_start / 1000)
         window_end = datetime.fromtimestamp((aligned_start + size_ms) / 1000)
 
-        window = Window(
-            start_time=window_start,
-            end_time=window_end,
-            window_type=WindowType.TUMBLING,
-            key=key,
-            metadata={"size_ms": size_ms},
-        )
+        # Try to reuse window from pool
+        window = self._get_pooled_window()
+        if window:
+            # Reset window properties
+            window.start_time = window_start
+            window.end_time = window_end
+            window.window_type = WindowType.TUMBLING
+            window.key = key
+            window.events.clear()
+            window.metadata = {"size_ms": size_ms}
+        else:
+            window = Window(
+                start_time=window_start,
+                end_time=window_end,
+                window_type=WindowType.TUMBLING,
+                key=key,
+                metadata={"size_ms": size_ms},
+            )
 
         self._windows[key].append(window)
         self._schedule_window_close(window)
+
+        # Check memory usage periodically
+        self._check_memory_usage()
 
         self.logger.debug(
             "Created tumbling window",
@@ -310,6 +365,8 @@ class WindowManager:
                 if window.key in self._windows:
                     try:
                         self._windows[window.key].remove(window)
+                        # Return window to pool for reuse
+                        self._return_window_to_pool(window)
                     except ValueError:
                         pass  # Window already removed
 
@@ -346,6 +403,8 @@ class WindowManager:
 
                     for window in expired_windows:
                         windows.remove(window)
+                        # Return expired window to pool
+                        self._return_window_to_pool(window)
                         removed_count += 1
 
                     # Remove empty key entries
@@ -363,6 +422,78 @@ class WindowManager:
             except Exception as e:
                 self.logger.error("Error in window cleanup", error=str(e))
                 await asyncio.sleep(5)  # Backoff on error
+
+    def _get_pooled_window(self) -> Window | None:
+        """Get a window from the pool for reuse."""
+        if self._window_pool:
+            return self._window_pool.pop()
+        return None
+
+    def _return_window_to_pool(self, window: Window) -> None:
+        """Return a window to the pool for reuse."""
+        if len(self._window_pool) < self._max_pool_size:
+            # Clear window data to prevent memory leaks
+            window.events.clear()
+            window.metadata.clear()
+            self._window_pool.append(window)
+
+    def _check_memory_usage(self) -> None:
+        """Check and manage memory usage."""
+        current_time = time.time()
+        if current_time - self._last_memory_check < self._memory_check_interval:
+            return
+
+        self._last_memory_check = current_time
+
+        # Count total windows
+        total_windows = sum(len(windows) for windows in self._windows.values())
+
+        # Proactive cleanup at 80% of limit to prevent hitting hard limit
+        proactive_limit = int(self._window_count_limit * 0.8)
+
+        if total_windows > proactive_limit:
+            cleanup_type = (
+                "proactive"
+                if total_windows <= self._window_count_limit
+                else "emergency"
+            )
+            self.logger.info(
+                f"Running {cleanup_type} window cleanup",
+                total_windows=total_windows,
+                proactive_limit=proactive_limit,
+                hard_limit=self._window_count_limit,
+            )
+            # Force cleanup of oldest windows
+            self._force_window_cleanup()
+
+    def _force_window_cleanup(self) -> None:
+        """Force cleanup of oldest windows to prevent memory issues."""
+        current_time = datetime.utcnow()
+        removed_count = 0
+
+        for key in list(self._windows.keys()):
+            windows = self._windows[key]
+            # Remove windows older than 2x their allowed lateness
+            cleanup_threshold = self.config.allowed_lateness_ms * 2
+
+            windows_to_remove = [
+                w
+                for w in windows
+                if (current_time - w.end_time).total_seconds() * 1000
+                > cleanup_threshold
+            ]
+
+            for window in windows_to_remove:
+                windows.remove(window)
+                self._return_window_to_pool(window)
+                removed_count += 1
+
+            # Remove empty key entries
+            if not windows:
+                del self._windows[key]
+
+        if removed_count > 0:
+            self.logger.info("Force cleaned up old windows", count=removed_count)
 
 
 class StreamAggregator:

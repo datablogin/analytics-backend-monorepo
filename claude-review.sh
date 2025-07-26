@@ -19,6 +19,12 @@ MODEL=""
 POST_COMMENT=true
 OUTPUT_MODE="comment"
 DRY_RUN=false
+CI_MODE=false
+
+# Detect if running in CI environment
+if [ "${CI}" = "true" ] || [ "${GITHUB_ACTIONS}" = "true" ]; then
+    CI_MODE=true
+fi
 
 # Get current branch to return to later
 ORIGINAL_BRANCH=$(git branch --show-current)
@@ -299,6 +305,15 @@ $REVIEW_PROMPT
 EOF
         
         # Run Claude and capture output
+        # In CI mode, use different claude invocation if needed
+        if [ "$CI_MODE" = true ]; then
+            # In CI, save output for GitHub Actions to process
+            if claude chat < "$TEMP_FILE" > "${TEMP_FILE}.output" 2>&1; then
+                # Also save to a standard location for GitHub Actions
+                cp "${TEMP_FILE}.output" "claude-review-output.md"
+            fi
+        fi
+        
         if claude chat < "$TEMP_FILE" > "${TEMP_FILE}.output" 2>&1; then
             # Prepare comment body with header (exclude full context to save space)
             COMMENT_FILE=$(mktemp)

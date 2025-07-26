@@ -23,6 +23,7 @@ from libs.ml_models.registry import ModelRegistry
 
 from .config import RealtimeMLConfig, get_streaming_config
 from .event_store import EventSchema, EventType, MLPredictionEvent
+from .performance_profiler import get_performance_profiler, profile_streaming_method
 
 logger = structlog.get_logger(__name__)
 
@@ -200,7 +201,7 @@ class DefaultFeatureExtractor(FeatureExtractor):
 
 
 class ModelCache:
-    """Cache for loaded ML models with proper resource management."""
+    """Cache for loaded ML models with proper resource management and performance optimization."""
 
     def __init__(self, max_size: int = 10, max_memory_mb: int = 1024):
         self.max_size = max_size
@@ -210,15 +211,25 @@ class ModelCache:
         self.model_sizes: dict[str, int] = {}  # Track model memory usage
         self.total_memory_mb = 0
         self.logger = logger.bind(component="model_cache")
+        self._profiler = get_performance_profiler()
 
+        # Performance optimization: cache hit/miss tracking
+        self._hit_count = 0
+        self._miss_count = 0
+        self._stats_cache: dict[str, Any] = {}
+        self._last_stats_update = 0
+
+    @profile_streaming_method("model_cache", "get_model")
     def get_model(self, model_key: str) -> Any | None:
-        """Get model from cache."""
+        """Get model from cache with performance tracking."""
         if model_key in self.cache:
             model, cached_at = self.cache[model_key]
             self.access_times[model_key] = datetime.utcnow()
+            self._hit_count += 1
             self.logger.debug("Model cache hit", model_key=model_key)
             return model
 
+        self._miss_count += 1
         self.logger.debug("Model cache miss", model_key=model_key)
         return None
 
@@ -290,17 +301,30 @@ class ModelCache:
         self.logger.debug("Evicted LRU model", model_key=lru_key)
 
     def get_stats(self) -> dict[str, Any]:
-        """Get cache statistics."""
-        return {
-            "cache_size": len(self.cache),
-            "max_size": self.max_size,
-            "total_memory_mb": self.total_memory_mb,
-            "max_memory_mb": self.max_memory_mb,
-            "cached_models": list(self.cache.keys()),
-            "memory_utilization": self.total_memory_mb / self.max_memory_mb
-            if self.max_memory_mb > 0
-            else 0,
-        }
+        """Get cache statistics with performance metrics."""
+        current_time = time.time()
+
+        # Cache stats calculation for 1 second
+        if current_time - self._last_stats_update > 1.0:
+            total_requests = self._hit_count + self._miss_count
+            hit_rate = (self._hit_count / max(total_requests, 1)) * 100
+
+            self._stats_cache = {
+                "cache_size": len(self.cache),
+                "max_size": self.max_size,
+                "total_memory_mb": self.total_memory_mb,
+                "max_memory_mb": self.max_memory_mb,
+                "cached_models": list(self.cache.keys()),
+                "memory_utilization": self.total_memory_mb / self.max_memory_mb
+                if self.max_memory_mb > 0
+                else 0,
+                "hit_count": self._hit_count,
+                "miss_count": self._miss_count,
+                "hit_rate_percent": hit_rate,
+            }
+            self._last_stats_update = current_time
+
+        return self._stats_cache.copy()
 
     def _estimate_model_size(self, model: Any) -> int:
         """Estimate model memory usage in MB."""
@@ -491,6 +515,7 @@ class RealtimeMLInferenceEngine:
             extractor_type=type(extractor).__name__,
         )
 
+    @profile_streaming_method("realtime_ml_engine", "predict_from_event")
     async def predict_from_event(
         self,
         event: EventSchema,
@@ -498,7 +523,7 @@ class RealtimeMLInferenceEngine:
         model_version: str | None = None,
         use_feature_store: bool = True,
     ) -> PredictionResult | None:
-        """Make prediction from event data."""
+        """Make prediction from event data with performance optimization."""
         try:
             # Extract basic features from event
             extractor = self.feature_extractors.get(event.event_type.value)
@@ -579,8 +604,9 @@ class RealtimeMLInferenceEngine:
                 error_message=str(error),
             )
 
+    @profile_streaming_method("realtime_ml_engine", "predict")
     async def predict(self, request: PredictionRequest) -> PredictionResult | None:
-        """Make prediction from request."""
+        """Make prediction from request with performance optimization."""
         start_time = time.time()
 
         try:
@@ -643,126 +669,201 @@ class RealtimeMLInferenceEngine:
         inference_start = None
 
         try:
-            # Load model
-            model_key = f"{request.model_name}:{request.model_version or 'latest'}"
-            model = self.model_cache.get_model(model_key)
-
+            # Load and cache model
+            model = await self._get_or_load_model(request)
             if model is None:
-                # Load from model registry
-                model_version = await self._load_model(
-                    request.model_name, request.model_version
+                return self._create_error_result(
+                    request,
+                    start_time,
+                    PredictionStatus.MODEL_NOT_FOUND,
+                    f"Model {request.model_name} not found",
                 )
-                if model_version is None:
-                    return PredictionResult(
-                        request_id=request.request_id,
-                        model_name=request.model_name,
-                        model_version=request.model_version or "unknown",
-                        prediction=None,
-                        total_time_ms=(time.time() - start_time) * 1000,
-                        status=PredictionStatus.MODEL_NOT_FOUND,
-                        error_message=f"Model {request.model_name} not found",
-                    )
 
-                # Load the actual model using MLflow
-                import mlflow.pyfunc
+            # Prepare features for inference
+            feature_array, feature_names = self._prepare_features(request, model)
 
-                model_uri = f"models:/{model_version.name}/{model_version.version}"
-
-                # Validate model URI for security
-                if not _validate_model_uri(model_uri):
-                    raise ValueError(
-                        f"Invalid or potentially unsafe model URI: {model_uri}"
-                    )
-
-                model = mlflow.pyfunc.load_model(model_uri)
-                self.model_cache.put_model(model_key, model)
-
-            # Prepare features
-            if isinstance(request.features, FeatureVector):
-                features = request.features
-            else:
-                features = FeatureVector(features=request.features or {})
-
-            # Extract feature names from model or use defaults
-            feature_names = getattr(
-                model, "feature_names_", list(features.features.keys())
-            )
-            feature_array = features.to_array(feature_names)
-
-            # Reshape for single prediction
-            if feature_array.ndim == 1:
-                feature_array = feature_array.reshape(1, -1)
-
-            # Perform inference
+            # Perform model inference
             inference_start = time.time()
-
-            if hasattr(model, "predict_proba"):
-                # Classification with probabilities
-                prediction_proba = model.predict_proba(feature_array)
-                prediction = model.predict(feature_array)
-                confidence_score = float(np.max(prediction_proba[0]))
-                prediction_value = prediction[0] if len(prediction) > 0 else None
-            elif hasattr(model, "predict"):
-                # Standard prediction
-                prediction = model.predict(feature_array)
-                prediction_value = prediction[0] if len(prediction) > 0 else None
-                confidence_score = None
-            else:
-                raise ValueError("Model does not support prediction")
-
+            prediction_value, confidence_score = self._execute_inference(
+                model, feature_array
+            )
             inference_time_ms = (time.time() - inference_start) * 1000
-            total_time_ms = (time.time() - start_time) * 1000
 
-            # Update statistics
-            self._inference_count += 1
-            self._total_inference_time_ms += inference_time_ms
-
-            result = PredictionResult(
-                request_id=request.request_id,
-                model_name=request.model_name,
-                model_version=request.model_version or "latest",
-                prediction=prediction_value,
-                confidence_score=confidence_score,
-                feature_names=feature_names,
-                inference_time_ms=inference_time_ms,
-                total_time_ms=total_time_ms,
-                status=PredictionStatus.SUCCESS,
+            # Update statistics and create result
+            self._update_inference_stats(inference_time_ms)
+            return self._create_success_result(
+                request,
+                start_time,
+                inference_time_ms,
+                prediction_value,
+                confidence_score,
+                feature_names,
             )
-
-            self.logger.debug(
-                "Prediction completed",
-                request_id=request.request_id,
-                model_name=request.model_name,
-                inference_time_ms=inference_time_ms,
-                total_time_ms=total_time_ms,
-            )
-
-            return result
 
         except Exception as e:
-            self._error_count += 1
-            inference_time_ms = (
-                (time.time() - inference_start) * 1000 if inference_start else 0
-            )
-            total_time_ms = (time.time() - start_time) * 1000
-
-            self.logger.error(
-                "Single prediction failed",
-                request_id=request.request_id,
-                model_name=request.model_name,
-                error=str(e),
+            return self._handle_prediction_error(
+                request, start_time, inference_start, e
             )
 
-            return PredictionResult(
-                request_id=request.request_id,
-                model_name=request.model_name,
-                model_version=request.model_version or "unknown",
-                prediction=None,
-                inference_time_ms=inference_time_ms,
-                total_time_ms=total_time_ms,
-                status=PredictionStatus.ERROR,
-                error_message=str(e),
+    async def _get_or_load_model(self, request: PredictionRequest) -> Any | None:
+        """Get model from cache or load from registry."""
+        model_key = f"{request.model_name}:{request.model_version or 'latest'}"
+        model = self.model_cache.get_model(model_key)
+
+        if model is None:
+            # Load from model registry
+            model_version = await self._load_model(
+                request.model_name, request.model_version
             )
+            if model_version is None:
+                return None
+
+            # Load the actual model using MLflow
+            import mlflow.pyfunc
+
+            model_uri = f"models:/{model_version.name}/{model_version.version}"
+
+            # Validate model URI for security
+            if not _validate_model_uri(model_uri):
+                raise ValueError(
+                    f"Invalid or potentially unsafe model URI: {model_uri}"
+                )
+
+            model = mlflow.pyfunc.load_model(model_uri)
+            self.model_cache.put_model(model_key, model)
+
+        return model
+
+    def _prepare_features(
+        self, request: PredictionRequest, model: Any
+    ) -> tuple[np.ndarray, list[str]]:
+        """Prepare features for model inference."""
+        # Convert to FeatureVector if needed
+        if isinstance(request.features, FeatureVector):
+            features = request.features
+        else:
+            features = FeatureVector(features=request.features or {})
+
+        # Extract feature names from model or use defaults
+        feature_names = getattr(model, "feature_names_", list(features.features.keys()))
+        feature_array = features.to_array(feature_names)
+
+        # Reshape for single prediction
+        if feature_array.ndim == 1:
+            feature_array = feature_array.reshape(1, -1)
+
+        return feature_array, feature_names
+
+    def _execute_inference(
+        self, model: Any, feature_array: np.ndarray
+    ) -> tuple[Any, float | None]:
+        """Execute model inference and return prediction and confidence."""
+        if hasattr(model, "predict_proba"):
+            # Classification with probabilities
+            prediction_proba = model.predict_proba(feature_array)
+            prediction = model.predict(feature_array)
+            confidence_score = float(np.max(prediction_proba[0]))
+            prediction_value = prediction[0] if len(prediction) > 0 else None
+        elif hasattr(model, "predict"):
+            # Standard prediction
+            prediction = model.predict(feature_array)
+            prediction_value = prediction[0] if len(prediction) > 0 else None
+            confidence_score = None
+        else:
+            raise ValueError("Model does not support prediction")
+
+        return prediction_value, confidence_score
+
+    def _update_inference_stats(self, inference_time_ms: float) -> None:
+        """Update inference statistics."""
+        self._inference_count += 1
+        self._total_inference_time_ms += inference_time_ms
+
+    def _create_success_result(
+        self,
+        request: PredictionRequest,
+        start_time: float,
+        inference_time_ms: float,
+        prediction_value: Any,
+        confidence_score: float | None,
+        feature_names: list[str],
+    ) -> PredictionResult:
+        """Create successful prediction result."""
+        total_time_ms = (time.time() - start_time) * 1000
+
+        result = PredictionResult(
+            request_id=request.request_id,
+            model_name=request.model_name,
+            model_version=request.model_version or "latest",
+            prediction=prediction_value,
+            confidence_score=confidence_score,
+            feature_names=feature_names,
+            inference_time_ms=inference_time_ms,
+            total_time_ms=total_time_ms,
+            status=PredictionStatus.SUCCESS,
+        )
+
+        self.logger.debug(
+            "Prediction completed",
+            request_id=request.request_id,
+            model_name=request.model_name,
+            inference_time_ms=inference_time_ms,
+            total_time_ms=total_time_ms,
+        )
+
+        return result
+
+    def _create_error_result(
+        self,
+        request: PredictionRequest,
+        start_time: float,
+        status: PredictionStatus,
+        error_message: str,
+    ) -> PredictionResult:
+        """Create error prediction result."""
+        total_time_ms = (time.time() - start_time) * 1000
+
+        return PredictionResult(
+            request_id=request.request_id,
+            model_name=request.model_name,
+            model_version=request.model_version or "unknown",
+            prediction=None,
+            total_time_ms=total_time_ms,
+            status=status,
+            error_message=error_message,
+        )
+
+    def _handle_prediction_error(
+        self,
+        request: PredictionRequest,
+        start_time: float,
+        inference_start: float | None,
+        error: Exception,
+    ) -> PredictionResult:
+        """Handle prediction errors and create error result."""
+        self._error_count += 1
+        inference_time_ms = (
+            (time.time() - inference_start) * 1000 if inference_start else 0
+        )
+        total_time_ms = (time.time() - start_time) * 1000
+
+        self.logger.error(
+            "Single prediction failed",
+            request_id=request.request_id,
+            model_name=request.model_name,
+            error=str(error),
+        )
+
+        return PredictionResult(
+            request_id=request.request_id,
+            model_name=request.model_name,
+            model_version=request.model_version or "unknown",
+            prediction=None,
+            inference_time_ms=inference_time_ms,
+            total_time_ms=total_time_ms,
+            status=PredictionStatus.ERROR,
+            error_message=str(error),
+        )
 
     async def _load_model(
         self, model_name: str, model_version: str | None = None
