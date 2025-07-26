@@ -1,0 +1,202 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: stream-processor
+  namespace: streaming-analytics
+  labels:
+    app: stream-processor
+    component: streaming-analytics
+    version: v1
+spec:
+  # IMPORTANT: Using shared PVC with multiple replicas requires careful coordination
+  # Consider converting to StatefulSet for independent storage per replica
+  # For now, using replica count of 1 with PVC for state persistence
+  replicas: 1
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  selector:
+    matchLabels:
+      app: stream-processor
+  template:
+    metadata:
+      labels:
+        app: stream-processor
+        component: streaming-analytics
+        version: v1
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8080"
+        prometheus.io/path: "/metrics"
+    spec:
+      serviceAccountName: streaming-analytics-sa
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        fsGroupChangePolicy: "OnRootMismatch"
+      containers:
+      - name: stream-processor
+        image: your-registry.com/streaming-analytics:latest
+        imagePullPolicy: Always
+        command: ["python", "-m", "libs.streaming_analytics.processor"]
+        ports:
+        - containerPort: 8080
+          name: metrics
+          protocol: TCP
+        env:
+        - name: PROCESSOR_ID
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        - name: POD_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        - name: POD_NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
+        - name: POD_IP
+          valueFrom:
+            fieldRef:
+              fieldPath: status.podIP
+        - name: NODE_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: spec.nodeName
+        envFrom:
+        - configMapRef:
+            name: streaming-config
+        - secretRef:
+            name: streaming-secrets
+        resources:
+          requests:
+            cpu: 1
+            memory: 2Gi
+            ephemeral-storage: 2Gi
+          limits:
+            cpu: 4
+            memory: 8Gi
+            ephemeral-storage: 10Gi
+        volumeMounts:
+        - name: tmp
+          mountPath: /tmp
+        - name: cache
+          mountPath: /home/streaming/.cache
+        - name: rocksdb-data
+          mountPath: /home/streaming/rocksdb
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8080
+            scheme: HTTP
+          initialDelaySeconds: 60
+          periodSeconds: 30
+          timeoutSeconds: 10
+          failureThreshold: 3
+          successThreshold: 1
+        readinessProbe:
+          httpGet:
+            path: /ready
+            port: 8080
+            scheme: HTTP
+          initialDelaySeconds: 10
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+          successThreshold: 1
+        startupProbe:
+          httpGet:
+            path: /health
+            port: 8080
+            scheme: HTTP
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 60
+          successThreshold: 1
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          runAsNonRoot: true
+          runAsUser: 1000
+          runAsGroup: 1000
+          capabilities:
+            drop:
+            - ALL
+      volumes:
+      - name: tmp
+        emptyDir: {}
+      - name: cache
+        emptyDir:
+          sizeLimit: 2Gi
+      - name: rocksdb-data
+        persistentVolumeClaim:
+          claimName: rocksdb-data-pvc
+      terminationGracePeriodSeconds: 120
+      dnsPolicy: ClusterFirst
+      restartPolicy: Always
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              labelSelector:
+                matchExpressions:
+                - key: app
+                  operator: In
+                  values:
+                  - stream-processor
+              topologyKey: kubernetes.io/hostname
+        nodeAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            preference:
+              matchExpressions:
+              - key: node-type
+                operator: In
+                values:
+                - compute-optimized
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: stream-processor-service
+  namespace: streaming-analytics
+  labels:
+    app: stream-processor
+    component: streaming-analytics
+spec:
+  selector:
+    app: stream-processor
+  ports:
+  - name: metrics
+    port: 8080
+    targetPort: 8080
+    protocol: TCP
+  type: ClusterIP
+  clusterIP: None  # Headless service for StatefulSet-like behavior
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: rocksdb-data-pvc
+  namespace: streaming-analytics
+  labels:
+    app: stream-processor
+    component: streaming-analytics
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: gp3  # Use appropriate storage class for your environment
+  resources:
+    requests:
+      storage: 20Gi  # Increased from 10Gi for better performance
+  # Optional: Add volume selector if needed
+  # selector:
+  #   matchLabels:
+  #     app: stream-processor

@@ -1,0 +1,529 @@
+# Default values for streaming-analytics
+# This is a YAML-formatted file.
+
+# Global configuration
+global:
+  imageRegistry: ""
+  imagePullSecrets: []
+  storageClass: ""
+
+# Image configuration
+image:
+  registry: your-registry.com
+  repository: streaming-analytics
+  tag: "latest"
+  pullPolicy: Always
+  pullSecrets: []
+
+# Service Account
+serviceAccount:
+  create: true
+  annotations: {}
+  name: streaming-analytics-sa
+
+# Pod Security Context
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  runAsGroup: 1000
+  fsGroup: 1000
+  fsGroupChangePolicy: "OnRootMismatch"
+
+# Security Context
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  runAsNonRoot: true
+  runAsUser: 1000
+  runAsGroup: 1000
+  capabilities:
+    drop:
+    - ALL
+
+# WebSocket Server Configuration
+websocketServer:
+  enabled: true
+  replicaCount: 3
+  
+  # Image configuration (inherits from global if not specified)
+  image: {}
+  
+  # Service configuration
+  service:
+    type: LoadBalancer
+    port: 8765
+    targetPort: 8765
+    metricsPort: 8080
+    annotations:
+      service.beta.kubernetes.io/aws-load-balancer-type: "nlb"
+      service.beta.kubernetes.io/aws-load-balancer-backend-protocol: "tcp"
+      service.beta.kubernetes.io/aws-load-balancer-cross-zone-load-balancing-enabled: "true"
+    sessionAffinity: ClientIP
+    sessionAffinityConfig:
+      clientIP:
+        timeoutSeconds: 300
+  
+  # Resource configuration
+  resources:
+    requests:
+      cpu: 500m
+      memory: 1Gi
+      ephemeral-storage: 1Gi
+    limits:
+      cpu: 2
+      memory: 4Gi
+      ephemeral-storage: 5Gi
+  
+  # Auto-scaling configuration
+  autoscaling:
+    enabled: true
+    minReplicas: 3
+    maxReplicas: 20
+    targetCPUUtilizationPercentage: 70
+    targetMemoryUtilizationPercentage: 80
+    metrics:
+    - type: Pods
+      pods:
+        metric:
+          name: websocket_connections_active
+        target:
+          type: AverageValue
+          averageValue: "1000"
+  
+  # Health checks
+  livenessProbe:
+    httpGet:
+      path: /health
+      port: 8080
+    initialDelaySeconds: 30
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 3
+  
+  readinessProbe:
+    httpGet:
+      path: /ready
+      port: 8080
+    initialDelaySeconds: 5
+    periodSeconds: 5
+    timeoutSeconds: 3
+    failureThreshold: 3
+  
+  startupProbe:
+    httpGet:
+      path: /health
+      port: 8080
+    initialDelaySeconds: 10
+    periodSeconds: 5
+    timeoutSeconds: 3
+    failureThreshold: 30
+  
+  # Pod disruption budget
+  podDisruptionBudget:
+    enabled: true
+    minAvailable: 2
+  
+  # Node selection
+  nodeSelector: {}
+  tolerations: []
+  affinity:
+    podAntiAffinity:
+      preferredDuringSchedulingIgnoredDuringExecution:
+      - weight: 100
+        podAffinityTerm:
+          labelSelector:
+            matchExpressions:
+            - key: app.kubernetes.io/name
+              operator: In
+              values:
+              - websocket-server
+          topologyKey: kubernetes.io/hostname
+
+# Stream Processor Configuration
+streamProcessor:
+  enabled: true
+  replicaCount: 6
+  
+  # Image configuration (inherits from global if not specified)
+  image: {}
+  
+  # Service configuration
+  service:
+    type: ClusterIP
+    port: 8080
+    targetPort: 8080
+    clusterIP: None  # Headless service
+  
+  # Resource configuration
+  resources:
+    requests:
+      cpu: 1
+      memory: 2Gi
+      ephemeral-storage: 2Gi
+    limits:
+      cpu: 4
+      memory: 8Gi
+      ephemeral-storage: 10Gi
+  
+  # Auto-scaling configuration
+  autoscaling:
+    enabled: true
+    minReplicas: 6
+    maxReplicas: 50
+    targetCPUUtilizationPercentage: 80
+    targetMemoryUtilizationPercentage: 85
+    metrics:
+    - type: Pods
+      pods:
+        metric:
+          name: kafka_consumer_lag
+        target:
+          type: AverageValue
+          averageValue: "1000"
+    - type: Pods
+      pods:
+        metric:
+          name: event_processing_duration_ms_p95
+        target:
+          type: AverageValue
+          averageValue: "100"
+  
+  # Health checks
+  livenessProbe:
+    httpGet:
+      path: /health
+      port: 8080
+    initialDelaySeconds: 60
+    periodSeconds: 30
+    timeoutSeconds: 10
+    failureThreshold: 3
+  
+  readinessProbe:
+    httpGet:
+      path: /ready
+      port: 8080
+    initialDelaySeconds: 10
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 3
+  
+  startupProbe:
+    httpGet:
+      path: /health
+      port: 8080
+    initialDelaySeconds: 30
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 60
+  
+  # Pod disruption budget
+  podDisruptionBudget:
+    enabled: true
+    minAvailable: 4
+  
+  # Node selection
+  nodeSelector: {}
+  tolerations: []
+  affinity:
+    podAntiAffinity:
+      preferredDuringSchedulingIgnoredDuringExecution:
+      - weight: 100
+        podAffinityTerm:
+          labelSelector:
+            matchExpressions:
+            - key: app.kubernetes.io/name
+              operator: In
+              values:
+              - stream-processor
+          topologyKey: kubernetes.io/hostname
+    nodeAffinity:
+      preferredDuringSchedulingIgnoredDuringExecution:
+      - weight: 100
+        preference:
+          matchExpressions:
+          - key: node-type
+            operator: In
+            values:
+            - compute-optimized
+
+# ML Inference Configuration
+mlInference:
+  enabled: true
+  replicaCount: 4
+  
+  # Image configuration (inherits from global if not specified)
+  image: {}
+  
+  # Service configuration
+  service:
+    type: ClusterIP
+    port: 8081
+    targetPort: 8081
+    metricsPort: 8080
+  
+  # Resource configuration
+  resources:
+    requests:
+      cpu: 2
+      memory: 4Gi
+      ephemeral-storage: 2Gi
+    limits:
+      cpu: 8
+      memory: 16Gi
+      ephemeral-storage: 10Gi
+  
+  # Auto-scaling configuration
+  autoscaling:
+    enabled: true
+    minReplicas: 4
+    maxReplicas: 20
+    targetCPUUtilizationPercentage: 75
+    targetMemoryUtilizationPercentage: 80
+    metrics:
+    - type: Pods
+      pods:
+        metric:
+          name: ml_inference_queue_size
+        target:
+          type: AverageValue
+          averageValue: "50"
+  
+  # Health checks
+  livenessProbe:
+    httpGet:
+      path: /health
+      port: 8080
+    initialDelaySeconds: 120
+    periodSeconds: 30
+    timeoutSeconds: 10
+    failureThreshold: 3
+  
+  readinessProbe:
+    httpGet:
+      path: /ready
+      port: 8080
+    initialDelaySeconds: 30
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 3
+  
+  startupProbe:
+    httpGet:
+      path: /health
+      port: 8080
+    initialDelaySeconds: 60
+    periodSeconds: 15
+    timeoutSeconds: 10
+    failureThreshold: 40
+  
+  # Pod disruption budget
+  podDisruptionBudget:
+    enabled: true
+    minAvailable: 2
+  
+  # Node selection
+  nodeSelector: {}
+  tolerations: []
+  affinity:
+    podAntiAffinity:
+      preferredDuringSchedulingIgnoredDuringExecution:
+      - weight: 100
+        podAffinityTerm:
+          labelSelector:
+            matchExpressions:
+            - key: app.kubernetes.io/name
+              operator: In
+              values:
+              - ml-inference
+          topologyKey: kubernetes.io/hostname
+    nodeAffinity:
+      preferredDuringSchedulingIgnoredDuringExecution:
+      - weight: 100
+        preference:
+          matchExpressions:
+          - key: node-type
+            operator: In
+            values:
+            - memory-optimized
+      - weight: 50
+        preference:
+          matchExpressions:
+          - key: accelerator
+            operator: In
+            values:
+            - gpu
+
+# Configuration
+config:
+  # Environment
+  environment: production
+  logLevel: INFO
+  enableTracing: true
+  traceSamplingRate: 0.1
+  
+  # Kafka configuration
+  kafka:
+    bootstrapServers: 
+    - "kafka-broker-1:9092"
+    - "kafka-broker-2:9092" 
+    - "kafka-broker-3:9092"
+    securityProtocol: SASL_SSL
+    saslMechanism: PLAIN
+    producerConfig:
+      acks: "all"
+      retries: 3
+      enableIdempotence: true
+      compressionType: gzip
+    consumerConfig:
+      autoOffsetReset: earliest
+      enableAutoCommit: false
+      maxPollRecords: 500
+    enableDeadLetterQueue: true
+  
+  # Stream processing
+  streamProcessing:
+    defaultWindowSizeMs: 60000
+    allowedLatenessMs: 10000
+    parallelism: 8
+    maxBatchSize: 1000
+    processingTimeoutMs: 30000
+    stateBackend: rocksdb
+    checkpointIntervalMs: 60000
+    retryAttempts: 3
+  
+  # WebSocket
+  websocket:
+    host: "0.0.0.0"
+    port: 8765
+    maxConnections: 10000
+    pingInterval: 20
+    pingTimeout: 10
+    requireAuth: true
+    authTimeoutSeconds: 30
+    enableRateLimiting: true
+    rateLimitPerMinute: 100
+    useSSL: true
+  
+  # Real-time ML
+  realtimeML:
+    modelCacheSize: 20
+    modelWarmUpSamples: 100
+    modelRefreshIntervalSeconds: 300
+    batchInference: true
+    maxBatchSize: 64
+    batchTimeoutMs: 50
+    featureCacheTTLSeconds: 300
+    maxLatencyMs: 50
+    throughputTargetPerSecond: 2000
+  
+  # Monitoring
+  monitoring:
+    metricsIntervalSeconds: 10
+    detailedMetrics: true
+    latencyWarningMs: 100
+    latencyCriticalMs: 1000
+    throughputWarningThreshold: 0.8
+    errorRateWarningThreshold: 0.01
+    errorRateCriticalThreshold: 0.05
+    enableAutoScaling: true
+    scaleUpThreshold: 0.8
+    scaleDownThreshold: 0.3
+    minInstances: 2
+    maxInstances: 20
+    cooldownPeriodSeconds: 300
+  
+  # Topics
+  topics:
+    defaultPartitions: 6
+    defaultReplicationFactor: 3
+    eventsTopicName: "analytics-events"
+    metricsTopicName: "streaming-metrics"
+    alertsTopicName: "streaming-alerts"
+    mlPredictionsTopicName: "ml-predictions"
+
+# Secrets configuration
+secrets:
+  create: true
+  # Kafka credentials
+  kafka:
+    username: ""  # Set via environment or external secret
+    password: ""  # Set via environment or external secret
+  
+  # Database credentials
+  database:
+    user: ""      # Set via environment or external secret
+    password: ""  # Set via environment or external secret
+  
+  # Redis password
+  redis:
+    password: ""  # Set via environment or external secret
+  
+  # MLflow token
+  mlflow:
+    token: ""     # Set via environment or external secret
+  
+  # JWT secret
+  jwt:
+    secretKey: "" # Set via environment or external secret
+
+# TLS configuration
+tls:
+  enabled: true
+  secretName: streaming-tls-secret
+  # If cert-manager is used
+  certManager:
+    enabled: false
+    issuer: letsencrypt-prod
+    dnsNames:
+    - streaming.company.com
+
+# External services configuration
+externalServices:
+  database:
+    host: postgres-cluster.streaming-analytics.svc.cluster.local
+    port: 5432
+    name: streaming_analytics
+    poolSize: 20
+    maxOverflow: 30
+    poolTimeout: 30
+  
+  redis:
+    host: redis-cluster.streaming-analytics.svc.cluster.local
+    port: 6379
+    poolSize: 50
+  
+  observability:
+    otelCollectorEndpoint: http://otel-collector.observability.svc.cluster.local:4317
+    serviceName: streaming-analytics
+    serviceVersion: "1.0.0"
+
+# Monitoring configuration
+monitoring:
+  enabled: true
+  serviceMonitor:
+    enabled: true
+    interval: 15s
+    scrapeTimeout: 10s
+  
+  prometheusRule:
+    enabled: true
+  
+  grafanaDashboard:
+    enabled: true
+
+# Network policies
+networkPolicy:
+  enabled: true
+  policyTypes:
+  - Ingress
+  - Egress
+
+# Dependencies configuration
+postgresql:
+  enabled: false  # Use external PostgreSQL
+
+redis:
+  enabled: false  # Use external Redis
+
+kafka:
+  enabled: false  # Use external Kafka (MSK or dedicated cluster)

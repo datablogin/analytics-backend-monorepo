@@ -1,0 +1,46 @@
+apiVersion: v2
+name: streaming-analytics
+description: A Helm chart for Streaming Analytics Platform
+version: 1.0.0
+appVersion: "1.0.0"
+type: application
+
+maintainers:
+- name: Streaming Analytics Team
+  email: streaming-analytics@company.com
+
+keywords:
+- streaming
+- analytics
+- kafka
+- websocket
+- ml-inference
+- real-time
+
+home: https://github.com/your-org/analytics-backend-monorepo
+sources:
+- https://github.com/your-org/analytics-backend-monorepo
+
+dependencies:
+- name: postgresql
+  version: "12.12.10"  # Pinned to stable LTS version
+  repository: "https://charts.bitnami.com/bitnami"
+  condition: postgresql.enabled
+  tags:
+    - database
+- name: redis
+  version: "17.15.6"   # Pinned to stable version with security fixes
+  repository: "https://charts.bitnami.com/bitnami"
+  condition: redis.enabled
+  tags:
+    - cache
+- name: kafka
+  version: "22.1.5"    # Pinned to stable version with latest fixes
+  repository: "https://charts.bitnami.com/bitnami"
+  condition: kafka.enabled
+  tags:
+    - messaging
+
+annotations:
+  category: Analytics
+  licenses: MIT
