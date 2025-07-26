@@ -132,7 +132,23 @@ class FileSecretsBackend(SecretsBackend):
 
     def _get_secret_path(self, name: str) -> str:
         """Get file path for secret."""
-        return os.path.join(self.secrets_dir, f"{name}.secret")
+        # Validate secret name to prevent path traversal attacks
+        if not name or not isinstance(name, str):
+            raise ValueError("Secret name must be a non-empty string")
+
+        # Remove any path separators and dangerous characters
+        sanitized_name = name.replace("/", "").replace("\\", "").replace("..", "")
+
+        # Ensure the name contains only safe characters
+        import re
+        if not re.match(r"^[a-zA-Z0-9_-]+$", sanitized_name):
+            raise ValueError("Secret name can only contain alphanumeric characters, underscores, and hyphens")
+
+        # Prevent empty names after sanitization
+        if not sanitized_name:
+            raise ValueError("Secret name cannot be empty after sanitization")
+
+        return os.path.join(self.secrets_dir, f"{sanitized_name}.secret")
 
     async def get_secret(self, name: str) -> str | None:
         """Get secret from encrypted file."""
@@ -222,6 +238,64 @@ class FileSecretsBackend(SecretsBackend):
             self.logger.error("Failed to list secrets", error=str(e))
 
         return secrets
+
+    async def rotate_encryption_key(self, new_encryption_key: str) -> bool:
+        """Rotate the encryption key and re-encrypt all secrets."""
+        try:
+            # Create new cipher with the new key
+            key_bytes = base64.urlsafe_b64decode(new_encryption_key.encode())
+            new_cipher = Fernet(key_bytes)
+
+            # Get all current secrets
+            secret_names = await self.list_secrets()
+
+            # Re-encrypt all secrets with new key
+            for secret_name in secret_names:
+                # Get secret with old key
+                old_secret_value = await self.get_secret(secret_name)
+                if old_secret_value is None:
+                    continue
+
+                # Get metadata from old file
+                secret_path = self._get_secret_path(secret_name)
+                if not os.path.exists(secret_path):
+                    continue
+
+                with open(secret_path, "rb") as f:
+                    encrypted_data = f.read()
+
+                decrypted_data = self.cipher.decrypt(encrypted_data)
+                secret_obj = json.loads(decrypted_data.decode("utf-8"))
+
+                # Update metadata with rotation info
+                metadata = SecretMetadata(**secret_obj["metadata"])
+                metadata.updated_at = datetime.now(timezone.utc)
+                metadata.version += 1
+
+                # Encrypt with new key
+                new_secret_obj = {
+                    "value": old_secret_value,
+                    "metadata": metadata.model_dump(mode="json"),
+                }
+
+                secret_json = json.dumps(new_secret_obj, default=str)
+                new_encrypted_data = new_cipher.encrypt(secret_json.encode("utf-8"))
+
+                # Write with new encryption
+                with open(secret_path, "wb") as f:
+                    f.write(new_encrypted_data)
+
+                os.chmod(secret_path, 0o600)
+
+            # Update cipher to use new key
+            self.cipher = new_cipher
+
+            self.logger.info("Encryption key rotated successfully", secrets_count=len(secret_names))
+            return True
+
+        except Exception as e:
+            self.logger.error("Failed to rotate encryption key", error=str(e))
+            return False
 
 
 class SecretsManager:

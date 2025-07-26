@@ -77,25 +77,67 @@ class AuthService:
 
     @staticmethod
     async def verify_token(token: str) -> TokenData:
+        import time
+        # Add consistent timing to prevent timing attacks
+        start_time = time.time()
+
         try:
             secret_key = await get_jwt_secret_key()
             payload = jwt.decode(token, secret_key, algorithms=[ALGORITHM])
-            user_id: int = payload.get("sub")
-            permissions: list[str] = payload.get("permissions", [])
-            if user_id is None:
+
+            # Validate user_id
+            user_id_raw = payload.get("sub")
+            if user_id_raw is None:
+                # Ensure consistent timing for all error cases
+                elapsed = time.time() - start_time
+                if elapsed < 0.001:  # Minimum 1ms delay
+                    time.sleep(0.001 - elapsed)
                 raise HTTPException(
                     status_code=status.HTTP_401_UNAUTHORIZED,
                     detail="Invalid authentication credentials",
                     headers={"WWW-Authenticate": "Bearer"},
                 )
+
+            # Ensure user_id is an integer
+            try:
+                user_id = int(user_id_raw)
+                if user_id <= 0:
+                    raise ValueError("User ID must be positive")
+            except (ValueError, TypeError):
+                # Ensure consistent timing for all error cases
+                elapsed = time.time() - start_time
+                if elapsed < 0.001:  # Minimum 1ms delay
+                    time.sleep(0.001 - elapsed)
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Invalid authentication credentials",
+                    headers={"WWW-Authenticate": "Bearer"},
+                )
+
+            # Validate permissions
+            permissions_raw = payload.get("permissions", [])
+            if not isinstance(permissions_raw, list):
+                permissions = []
+            else:
+                # Ensure all permissions are strings
+                permissions = [str(p) for p in permissions_raw if p]
+
             return TokenData(user_id=user_id, permissions=permissions)
         except jwt.ExpiredSignatureError:
+            # Ensure consistent timing for all error cases
+            elapsed = time.time() - start_time
+            if elapsed < 0.001:  # Minimum 1ms delay
+                time.sleep(0.001 - elapsed)
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Token expired",
                 headers={"WWW-Authenticate": "Bearer"},
             )
         except (jwt.InvalidTokenError, jwt.DecodeError, ValueError, AttributeError):
+            # Ensure consistent timing for all error cases
+            elapsed = time.time() - start_time
+            if elapsed < 0.001:  # Minimum 1ms delay
+                time.sleep(0.001 - elapsed)
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Invalid authentication credentials",

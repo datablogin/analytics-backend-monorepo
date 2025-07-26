@@ -285,6 +285,27 @@ class DDoSProtectionMiddleware(BaseHTTPMiddleware):
         auto_ban_duration: int = 3600,  # 1 hour
     ):
         super().__init__(app)
+
+        # Validate configuration to prevent DoS attacks via misconfiguration
+        if requests_per_minute <= 0 or requests_per_minute > 10000:
+            raise ValueError("requests_per_minute must be between 1 and 10000")
+
+        if burst_requests_per_second <= 0 or burst_requests_per_second > 1000:
+            raise ValueError("burst_requests_per_second must be between 1 and 1000")
+
+        if max_concurrent_requests <= 0 or max_concurrent_requests > 10000:
+            raise ValueError("max_concurrent_requests must be between 1 and 10000")
+
+        if suspicious_patterns_threshold <= 0 or suspicious_patterns_threshold > 100:
+            raise ValueError("suspicious_patterns_threshold must be between 1 and 100")
+
+        if auto_ban_duration < 60 or auto_ban_duration > 86400:  # 1 minute to 24 hours
+            raise ValueError("auto_ban_duration must be between 60 and 86400 seconds")
+
+        # Ensure burst limit doesn't exceed per-minute limit
+        if burst_requests_per_second * 60 > requests_per_minute:
+            raise ValueError("burst_requests_per_second * 60 cannot exceed requests_per_minute")
+
         self.requests_per_minute = requests_per_minute
         self.burst_requests_per_second = burst_requests_per_second
         self.max_concurrent_requests = max_concurrent_requests
