@@ -141,8 +141,11 @@ class FileSecretsBackend(SecretsBackend):
 
         # Ensure the name contains only safe characters
         import re
+
         if not re.match(r"^[a-zA-Z0-9_-]+$", sanitized_name):
-            raise ValueError("Secret name can only contain alphanumeric characters, underscores, and hyphens")
+            raise ValueError(
+                "Secret name can only contain alphanumeric characters, underscores, and hyphens"
+            )
 
         # Prevent empty names after sanitization
         if not sanitized_name:
@@ -290,7 +293,9 @@ class FileSecretsBackend(SecretsBackend):
             # Update cipher to use new key
             self.cipher = new_cipher
 
-            self.logger.info("Encryption key rotated successfully", secrets_count=len(secret_names))
+            self.logger.info(
+                "Encryption key rotated successfully", secrets_count=len(secret_names)
+            )
             return True
 
         except Exception as e:

@@ -78,6 +78,7 @@ class AuthService:
     @staticmethod
     async def verify_token(token: str) -> TokenData:
         import time
+
         # Add consistent timing to prevent timing attacks
         start_time = time.time()
 

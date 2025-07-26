@@ -304,7 +304,9 @@ class DDoSProtectionMiddleware(BaseHTTPMiddleware):
 
         # Ensure burst limit doesn't exceed per-minute limit
         if burst_requests_per_second * 60 > requests_per_minute:
-            raise ValueError("burst_requests_per_second * 60 cannot exceed requests_per_minute")
+            raise ValueError(
+                "burst_requests_per_second * 60 cannot exceed requests_per_minute"
+            )
 
         self.requests_per_minute = requests_per_minute
         self.burst_requests_per_second = burst_requests_per_second
