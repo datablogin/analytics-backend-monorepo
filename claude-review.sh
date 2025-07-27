@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Claude Code Local Review Script
-# Enhanced version that matches GitHub Action functionality
+# Enhanced version adapted for Python Analytics Monorepo
 # Supports structured prompts, focus areas, and multiple output modes
 
 set -e
@@ -19,12 +19,7 @@ MODEL=""
 POST_COMMENT=true
 OUTPUT_MODE="comment"
 DRY_RUN=false
-CI_MODE=false
-
-# Detect if running in CI environment
-if [ "${CI}" = "true" ] || [ "${GITHUB_ACTIONS}" = "true" ]; then
-    CI_MODE=true
-fi
+MAX_DIFF_LINES=500  # Maximum diff lines to include for review
 
 # Get current branch to return to later
 ORIGINAL_BRANCH=$(git branch --show-current)
@@ -36,10 +31,12 @@ usage() {
     echo ""
     echo "Options:"
     echo "  --focus AREA        Focus review on specific area:"
-    echo "                      security, performance, testing, causal-inference, style"
+    echo "                      security, performance, testing, streaming, data-quality,"
+    echo "                      ml-models, observability, architecture, style"
     echo "  --model MODEL       Use specific Claude model"
     echo "  --save-file         Save review to file instead of posting as comment (default: post comment)"
     echo "  --draft-comment     Post review as draft PR comment"
+    echo "  --max-diff-lines N  Maximum diff lines to include (default: 500, 0 = no limit)"
     echo "  --dry-run          Show what would be reviewed without calling Claude"
     echo "  --help             Show this help message"
     echo ""
@@ -47,9 +44,12 @@ usage() {
     echo "  $0                               # Review current PR and post as comment"
     echo "  $0 54                           # Review PR #54 and post as comment"
     echo "  $0 --focus security 54          # Focus on security review and post as comment"
-    echo "  $0 --focus causal-inference 54  # Focus on causal inference patterns and post as comment"
+    echo "  $0 --focus streaming 54         # Focus on streaming analytics patterns and post as comment"
+    echo "  $0 --focus data-quality 54      # Focus on data quality framework and post as comment"
     echo "  $0 --save-file 54               # Save review to file instead of posting"
     echo "  $0 --draft-comment 54           # Post as draft PR comment"
+    echo "  $0 --max-diff-lines 1000 54     # Include up to 1000 diff lines"
+    echo "  $0 --max-diff-lines 0 54        # Include full diff (no limit)"
     echo "  $0 --dry-run 54                 # Preview what would be reviewed"
     exit 1
 }
@@ -102,6 +102,10 @@ while [[ $# -gt 0 ]]; do
             OUTPUT_MODE="draft-comment"
             shift
             ;;
+        --max-diff-lines)
+            MAX_DIFF_LINES="$2"
+            shift 2
+            ;;
         --dry-run)
             DRY_RUN=true
             shift
@@ -141,9 +145,29 @@ if ! gh pr view "$PR_NUM" > /dev/null 2>&1; then
     exit 1
 fi
 
-# Helper function to detect causal inference files
-has_causal_inference_files() {
-    gh pr diff "$PR_NUM" --name-only | grep -E "(libs/causal_inference|estimators|core/base\.py)" > /dev/null 2>&1
+# Helper function to detect streaming analytics files
+has_streaming_files() {
+    gh pr diff "$PR_NUM" --name-only | grep -E "(libs/streaming_analytics|kafka|websocket|stream)" > /dev/null 2>&1
+}
+
+# Helper function to detect data quality files
+has_data_quality_files() {
+    gh pr diff "$PR_NUM" --name-only | grep -E "(libs/data_processing|data_quality|profiling|lineage)" > /dev/null 2>&1
+}
+
+# Helper function to detect ML model files
+has_ml_files() {
+    gh pr diff "$PR_NUM" --name-only | grep -E "(libs/ml_models|mlflow|inference)" > /dev/null 2>&1
+}
+
+# Helper function to detect observability files
+has_observability_files() {
+    gh pr diff "$PR_NUM" --name-only | grep -E "(libs/observability|telemetry|metrics|tracing)" > /dev/null 2>&1
+}
+
+# Helper function to detect core library files
+has_core_files() {
+    gh pr diff "$PR_NUM" --name-only | grep -E "(libs/analytics_core|libs/api_common|libs/config)" > /dev/null 2>&1
 }
 
 # Helper function to count significant changes
@@ -153,30 +177,121 @@ count_significant_changes() {
     echo $((additions + deletions))
 }
 
+# Helper function to create intelligent diff summary
+create_diff_summary() {
+    local pr_num="$1"
+    local max_lines="$2"
+    
+    if [ "$max_lines" -eq 0 ]; then
+        # No limit - include full diff
+        gh pr diff "$pr_num"
+        return
+    fi
+    
+    local full_diff
+    full_diff=$(gh pr diff "$pr_num")
+    local diff_line_count
+    diff_line_count=$(echo "$full_diff" | wc -l | tr -d ' ')
+    
+    if [ "$diff_line_count" -le "$max_lines" ]; then
+        # Diff is within limits - include it all
+        echo "$full_diff"
+    else
+        # Diff is too long - create intelligent summary
+        echo "### ⚠️ Large Diff Summary (${diff_line_count} lines total, showing first ${max_lines} lines)"
+        echo ""
+        echo "\`\`\`diff"
+        echo "$full_diff" | head -n "$max_lines"
+        echo ""
+        echo "... (diff truncated - ${diff_line_count} total lines, showing first ${max_lines})"
+        local repo_owner
+        local repo_name
+        repo_owner=$(gh repo view --json owner -q '.owner.login')
+        repo_name=$(gh repo view --json name -q '.name')
+        echo "Full diff available at: https://github.com/${repo_owner}/${repo_name}/pull/${pr_num}/files"
+        echo "\`\`\`"
+    fi
+}
+
 # Helper function to generate review prompt based on focus and file types
 generate_review_prompt() {
-    local base_prompt="Please review this pull request and provide feedback on:
-- Code quality and best practices
+    local base_prompt="Please review this pull request for our Python analytics monorepo and provide feedback on:
+- Code quality and Python best practices
 - Potential bugs or issues
 - Performance considerations
 - Security concerns
-- Test coverage
+- Test coverage and async patterns
+- Type safety and mypy compliance
+- Adherence to monorepo architecture patterns
 
-Be constructive and helpful in your feedback."
+Be constructive and helpful in your feedback. Consider the shared library + microservices architecture where libs/ contains shared code and services/ contains independent microservices."
 
     local additional_prompt=""
     
-    # Add causal inference specific prompts if relevant files are detected
-    if has_causal_inference_files || [[ "$FOCUS_AREAS" == *"causal-inference"* ]]; then
+    # Add streaming analytics specific prompts if relevant files are detected
+    if has_streaming_files || [[ "$FOCUS_AREAS" == *"streaming"* ]]; then
         additional_prompt="${additional_prompt}
 
-For causal inference code, also review:
-- Proper BaseEstimator inheritance and abstract method implementation
-- Correct usage of TreatmentData/OutcomeData/CovariateData models
-- Statistical assumption checking and validation
-- Bootstrap implementation and confidence interval calculation
-- Treatment of missing data and edge cases
-- Reproducibility through proper random state management"
+For streaming analytics code, also review:
+- Proper async/await usage for Kafka operations
+- Stream processing efficiency and windowing patterns
+- Real-time ML pipeline integration
+- WebSocket connection management and authentication
+- Streaming metrics and observability
+- Error handling and recovery mechanisms
+- Performance targeting (<100ms latency, 100k+ events/sec)"
+    fi
+    
+    # Add data quality specific prompts if relevant files are detected
+    if has_data_quality_files || [[ "$FOCUS_AREAS" == *"data-quality"* ]]; then
+        additional_prompt="${additional_prompt}
+
+For data quality framework code, also review:
+- Validation framework patterns and expectation definitions
+- Data profiling and statistical analysis accuracy
+- Lineage tracking completeness and correctness
+- Alerting mechanism reliability
+- Integration with API endpoints
+- Performance for large datasets"
+    fi
+    
+    # Add ML models specific prompts if relevant files are detected
+    if has_ml_files || [[ "$FOCUS_AREAS" == *"ml-models"* ]]; then
+        additional_prompt="${additional_prompt}
+
+For ML models code, also review:
+- MLflow integration patterns
+- Model versioning and registry usage
+- Inference pipeline efficiency
+- Experiment tracking completeness
+- Model caching strategies
+- A/B testing and deployment patterns"
+    fi
+    
+    # Add observability specific prompts if relevant files are detected
+    if has_observability_files || [[ "$FOCUS_AREAS" == *"observability"* ]]; then
+        additional_prompt="${additional_prompt}
+
+For observability code, also review:
+- OpenTelemetry instrumentation completeness
+- Structured logging with contextual information
+- Metrics collection and dashboarding
+- Distributed tracing implementation
+- Performance monitoring accuracy
+- Alert threshold appropriateness"
+    fi
+    
+    # Add core architecture specific prompts if relevant files are detected
+    if has_core_files || [[ "$FOCUS_AREAS" == *"architecture"* ]]; then
+        additional_prompt="${additional_prompt}
+
+For core architecture code, also review:
+- Shared library dependency management
+- Database session and connection patterns
+- Authentication and authorization flows
+- Configuration management with Pydantic Settings
+- Service bootstrapping and lifespan patterns
+- Import patterns between libs and services"
     fi
     
     # Add focus area specific prompts
@@ -185,37 +300,45 @@ For causal inference code, also review:
             additional_prompt="${additional_prompt}
 
 Focus specifically on security concerns:
-- Input validation and sanitization
-- Authentication and authorization
-- Sensitive data handling
-- Potential injection vulnerabilities"
+- Input validation and sanitization in FastAPI endpoints
+- Authentication token handling
+- Database injection prevention
+- Secrets management (never commit secrets)
+- API rate limiting and CORS policies
+- Async session security"
             ;;
         performance)
             additional_prompt="${additional_prompt}
 
 Focus specifically on performance:
-- Algorithm efficiency and time complexity
-- Memory usage optimization
-- Database query efficiency
-- Caching opportunities"
+- Async/await pattern efficiency
+- Database query optimization and connection pooling
+- Caching strategies (Redis integration)
+- Memory usage in stream processing
+- Algorithm complexity in data processing
+- ML model inference latency"
             ;;
         testing)
             additional_prompt="${additional_prompt}
 
 Focus specifically on testing:
-- Test coverage completeness
-- Test quality and maintainability
-- Edge case coverage
-- Mock and fixture usage"
+- Async test patterns with pytest-asyncio
+- Mock strategies for external dependencies (Kafka, ML models)
+- Database fixture cleanup
+- Integration test coverage
+- Streaming analytics test completeness
+- Type checking compliance"
             ;;
         style)
             additional_prompt="${additional_prompt}
 
 Focus specifically on code style:
-- Consistency with project conventions
-- Code readability and maintainability
-- Documentation quality
-- Naming conventions"
+- Ruff formatting compliance (88 char line length)
+- Type hints on all functions (mypy strict mode)
+- Structured logging patterns
+- Import organization (libs/ imports)
+- Async function consistency
+- Documentation and docstring quality"
             ;;
     esac
     
@@ -256,6 +379,7 @@ if [ "$DRY_RUN" = true ]; then
     echo "Generated prompt:"
     echo "$(generate_review_prompt)" | sed 's/^/  /'
     echo ""
+    echo -e "${YELLOW}Diff handling: Max lines set to $MAX_DIFF_LINES${NC}"
     echo -e "${YELLOW}Use without --dry-run to perform actual review${NC}"
     exit 0
 fi
@@ -270,7 +394,9 @@ fi
 # Generate the review prompt
 REVIEW_PROMPT=$(generate_review_prompt)
 
-# Prepare context information (optimized for token usage)
+# Prepare context information with intelligent diff handling
+echo -e "${BLUE}Preparing PR context (max diff lines: $MAX_DIFF_LINES)...${NC}"
+
 PR_CONTEXT="
 ### PR Context
 - **Title:** $PR_TITLE
@@ -281,10 +407,20 @@ PR_CONTEXT="
 - **Files Changed:** $PR_CHANGED_FILES
 - **Commits:** $PR_COMMITS
 
+### Repository Context
+This is a Python analytics monorepo with:
+- **Shared Libraries** in \`libs/\`: analytics_core, api_common, config, observability, data_processing, ml_models, streaming_analytics, etc.
+- **Independent Services** in \`services/\`: analytics_api, data_ingestion, ml_inference, batch_processor, feature_store
+- **Architecture**: Async-first with FastAPI, PostgreSQL, Kafka, MLflow, Redis
+- **Standards**: Python 3.11+, ruff formatting, mypy type checking, pytest-asyncio testing
+
 ### Files in this PR:
 \`\`\`
 $(gh pr diff "$PR_NUM" --name-only)
 \`\`\`
+
+### Code Changes:
+$(create_diff_summary "$PR_NUM" "$MAX_DIFF_LINES")
 "
 
 # Execute review based on output mode
@@ -305,14 +441,6 @@ $REVIEW_PROMPT
 EOF
         
         # Run Claude and capture output
-        # In CI mode, use different claude invocation if needed
-        if [ "$CI_MODE" = true ]; then
-            # In CI, save output for GitHub Actions to process
-            if claude chat < "$TEMP_FILE" > "${TEMP_FILE}.output" 2>&1; then
-                # Also save to a standard location for GitHub Actions
-                cp "${TEMP_FILE}.output" "claude-review-output.md"
-            fi
-        fi
         
         if claude chat < "$TEMP_FILE" > "${TEMP_FILE}.output" 2>&1; then
             # Prepare comment body with header (exclude full context to save space)
@@ -325,7 +453,7 @@ EOF
 $(cat "${TEMP_FILE}.output")
 
 ---
-*Review generated by Claude Local PR Review Tool*
+*Review generated by Claude Local PR Review Tool for Python Analytics Monorepo*
 EOF
             
             # Post comment
@@ -447,17 +575,19 @@ case "$OUTPUT_MODE" in
         echo -e "${GREEN}Next steps:${NC}"
         echo "• Review the posted comment on GitHub"
         echo "• Address any issues raised in the review"
+        echo "• Run make ci to validate changes (lint + format + type-check + test)"
         echo "• Create follow-up issues if needed: gh issue create --title \"...\" --body \"...\""
         ;;
     "file")
         echo -e "${GREEN}Next steps:${NC}"
         echo "• Review the saved file: $OUTPUT_FILE"
         echo "• Extract concerns/issues for follow-up"
+        echo "• Run make ci to validate any changes made"
         echo "• Create GitHub issues: gh issue create --title \"...\" --body \"...\""
         echo "• Consider sharing the review with your team"
         ;;
 esac
 
 echo ""
-echo -e "${BLUE}Enhanced Claude Review Script v2.0${NC}"
+echo -e "${BLUE}Enhanced Claude Review Script for Python Analytics Monorepo v2.0${NC}"
 echo -e "For help: $0 --help"
